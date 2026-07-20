@@ -1,0 +1,7 @@
+.twosix_modules/
+CLAUDE.md
+_fix_plan.md
+twosix-swap.sh
+.DS_Store
+__pycache__/
+*.pyc
