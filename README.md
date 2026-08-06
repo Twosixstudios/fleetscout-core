@@ -1,5 +1,8 @@
-Markdown
 # 🚛 FleetScout Core
+
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black__white.svg)](https://fleetscout.streamlit.app/)
+
+> **Live Application:** [fleetscout.streamlit.app](https://fleetscout.streamlit.app/)
 
 A lightweight, role-based fleet management and dispatch orchestration system built with Python, Streamlit, SQLAlchemy, and SQLite. Designed by Two Six Studios.
 
@@ -42,18 +45,3 @@ A lightweight, role-based fleet management and dispatch orchestration system bui
    ```bash
    git clone [https://github.com/Twosixstudios/fleetscout-core.git](https://github.com/Twosixstudios/fleetscout-core.git)
    cd fleetscout-core
-Set Up Virtual Environment & Dependencies:
-
-Bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-Seed Database & Run Application:
-
-Bash
-python -m src.core.seed
-streamlit run app.py
-Run Test Suite:
-
-Bash
-python -m pytest
