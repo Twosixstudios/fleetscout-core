@@ -1,7 +1,7 @@
 import asyncio
-from src.core.database import AsyncSessionLocal, sync_engine
 from src.core.database import AsyncSessionLocal, sync_engine, Base
 from src.core.models import User, Vehicle, Load
+from src.core.security import get_password_hash
 
 def reset_database():
     """Drop and recreate all database tables using the synchronous engine."""
@@ -19,7 +19,7 @@ async def seed_database():
                 id=1,
                 email="dispatcher@fleetscout.com",
                 username="dispatcher1",
-                hashed_password="default_mock_password_hash",
+                hashed_password=get_password_hash("password123"),
                 role="Dispatcher",
                 carrier_id=1
             )
@@ -27,7 +27,7 @@ async def seed_database():
                 id=2,
                 email="driver1@fleetscout.com",
                 username="driver1",
-                hashed_password="default_mock_password_hash",
+                hashed_password=get_password_hash("password123"),
                 role="Driver",
                 carrier_id=1
             )
