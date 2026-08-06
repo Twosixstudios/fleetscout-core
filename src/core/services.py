@@ -85,6 +85,20 @@ async def update_load_status(
     return log_entry
 
 
+async def unground_vehicle(
+    session: AsyncSession, vehicle_id: int
+) -> Vehicle:
+    """Sets a grounded vehicle's status back to 'Active' after repairs."""
+    vehicle = await session.get(Vehicle, vehicle_id)
+    if not vehicle:
+        raise ValueError(f"Vehicle with ID {vehicle_id} not found.")
+
+    vehicle.status = "Active"
+    await session.commit()
+    await session.refresh(vehicle)
+    return vehicle
+
+
 async def get_active_loads(session: AsyncSession):
     """Returns active dispatched loads with driver/vehicle and status-history timeline."""
     from sqlalchemy import select

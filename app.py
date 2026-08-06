@@ -7,6 +7,7 @@ from src.core.models import Vehicle, User, Load, OdometerLog
 from src.core.services import update_vehicle_odometer
 from src.ui.dispatch_panel import render_dispatch_panel
 from src.ui.load_watch_board import render_load_watch_board
+from src.ui.maintenance_hub import render_maintenance_hub
 
 # Set page config
 st.set_page_config(
@@ -336,7 +337,7 @@ def main():
 
     # AR-2.2: Routing Logic based on Active View
     if active_view == "Dispatch View":
-        menu = st.sidebar.selectbox("Navigation", ["Active Fleet", "Odometer Updates", "Active Loads", "Dispatch & Yard Board", "Load Watch Board"])
+        menu = st.sidebar.selectbox("Navigation", ["Active Fleet", "Odometer Updates", "Active Loads", "Dispatch & Yard Board", "Load Watch Board", "Maintenance & Override Hub"])
         if menu == "Active Fleet":
             active_fleet()
         elif menu == "Odometer Updates":
@@ -347,6 +348,8 @@ def main():
             render_dispatch_panel()
         elif menu == "Load Watch Board":
             render_load_watch_board()
+        elif menu == "Maintenance & Override Hub":
+            render_maintenance_hub()
 
     elif active_view == "Driver View":
         menu = st.sidebar.selectbox("Navigation", ["Driver Console", "Log Odometer"])

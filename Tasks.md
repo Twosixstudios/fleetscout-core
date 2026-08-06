@@ -1,5 +1,5 @@
 ---
-kanban-plugin: table
+kanban-plugin: list
 ---
 
 ## 🚚 FleetScout - Architecture & Rules
@@ -17,7 +17,7 @@ kanban-plugin: table
 	**Target Deliverable:**
 	Load creation & dispatch forms, active load watch boards, and maintenance/grounding override controls.
 	
-	**Overall Progress:** 10 / 18 Tasks Completed (56%)
+	**Overall Progress:** 11 / 18 Tasks Completed (61%)
 
 
 ## 🔒 Phase 1: Future-Proof Schema & Database Foundation
@@ -60,7 +60,7 @@ kanban-plugin: table
 - [x] **Task 3.3: Active Load Watch Board (`DP-3.3`)** `#priority/medium`
 	- **Description:** Real-time tracking display showing progress timelines, timestamps, and active status updates for all dispatched drivers.
 	- **Prerequisites:** Task 3.2
-- [ ] **Task 3.4: Maintenance & Override Hub (`DP-3.4`)** `#priority/medium`
+- [x] **Task 3.4: Maintenance & Override Hub (`DP-3.4`)** `#priority/medium`
 	- **Description:** Central mechanic log panel to display reported driver issues. Allow Owners/Mechanics to un-ground vehicles after repairs.
 	- **Prerequisites:** Task 3.3
 
