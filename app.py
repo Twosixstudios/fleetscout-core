@@ -1,9 +1,9 @@
 import streamlit as st
-import requests
 from sqlalchemy import select
 from zoneinfo import ZoneInfo
 from src.core.database import SessionLocal
 from src.core.models import Vehicle, User, Load, OdometerLog
+from src.core.security import create_access_token, verify_password
 from src.core.services import update_vehicle_odometer
 from src.ui.dispatch_panel import render_dispatch_panel
 from src.ui.load_watch_board import render_load_watch_board
@@ -47,33 +47,28 @@ def login():
         submit_button = st.form_submit_button(label="Login")
 
         if submit_button:
+            # Authenticate directly against the database (no external HTTP server needed)
+            db = SessionLocal()
             try:
-                # 1. Authenticate against FastAPI OAuth2 endpoint
-                response = requests.post(
-                    "http://localhost:8000/api/auth/token",
-                    data={"username": email, "password": password},
-                )
-                response.raise_for_status()
-                data = response.json()
-
-                # 2. Fetch User Record from DB to get actual assigned Role
-                db = SessionLocal()
-                try:
-                    user = db.query(User).filter_by(email=email).first()
-                    if not user:
-                        st.error("Auth succeeded, but no user record was found in the database.")
-                        return
-                    user_role = user.role
-                except Exception as db_err:
-                    db.rollback()
-                    st.error(f"Database error during user lookup: {db_err}")
+                user = db.query(User).filter_by(email=email.strip()).first()
+                if not user:
+                    st.error("No account was found with that email.")
                     return
-                finally:
-                    db.close()
+                if not user.is_active:
+                    st.error("This account has been deactivated. Please contact an administrator.")
+                    return
+                if not verify_password(password, user.hashed_password):
+                    st.error("Incorrect email or password.")
+                    return
 
-                # 3. Store authentication and role state
+                user_role = user.role
+                access_token = create_access_token(
+                    data={"sub": user.email, "role": user_role, "carrier_id": user.carrier_id}
+                )
+
+                # Store authentication and role state
                 st.session_state["is_authenticated"] = True
-                st.session_state["access_token"] = data["access_token"]
+                st.session_state["access_token"] = access_token
                 st.session_state["user_email"] = email
                 st.session_state["user_role"] = user_role
 
@@ -85,8 +80,11 @@ def login():
 
                 st.success(f"Welcome back! Logged in as {user_role}.")
                 st.rerun()
-            except requests.exceptions.RequestException as e:
-                st.error(f"Failed to log in: {e}")
+            except Exception as db_err:
+                db.rollback()
+                st.error(f"Database error during login: {db_err}")
+            finally:
+                db.close()
 
 
 # ==========================================
