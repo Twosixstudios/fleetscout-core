@@ -1,0 +1,1246 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.clinerules/
+  .aider.conf.yml
+  00-global.md
+  01-backend.md
+src/
+  api/
+    auth.py
+    routes.py
+  core/
+    config.py
+    database.py
+    models.py
+    parser.py
+    schemas.py
+    security.py
+    seed.py
+    services.py
+  ui/
+    yard_board.py
+tests/
+  conftest.py
+  test_auth.py
+  test_config.py
+  test_database.py
+  test_routes.py
+.gitignore
+app.py
+ARCHITECTURE.md
+fleet_state.json
+main.py
+pipeline_check.json
+reset_users.py
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path=".clinerules/.aider.conf.yml">
+openai-api-base: http://192.168.0.214:1234/v1
+openai-api-key: lm-studio
+model: openai/qwen2.5-coder-14b
+</file>
+
+<file path=".clinerules/00-global.md">
+# TwoSixStudios Global Project Constraints
+
+## Core Standards
+* **Project Scope:** Architectural blueprints must prioritize application builds that are clean, verifiable, and structured for local hosting.
+* **Network & Data:** Maintain strict local-first processing paths across the linked network interface.
+* **Agent Behavior:** Never execute multi-file changes or delete structural components without displaying a comprehensive file-diff for human approval first.
+
+## � Phase 2 Active Execution Laws (Access & Routing)
+* **The Pytest Command Law:** ALWAYS run tests using `python -m pytest`. Never run raw `pytest` commands, as local path modules will fail to resolve.
+* **The Token Firewall:** Keep test executions highly targeted (e.g., `python -m pytest tests/test_auth.py -v`). Do not dump massive unformatted logs into the stream to save context memory.
+
+## �️ Backend & Security Architecture Rules
+* **Native Bcrypt Only:** Use native `bcrypt` for all password hashing and verification. Absolutely DO NOT install, import, or reference `passlib` due to upstream binary conflicts with bcrypt 5.0.0+.
+* **Async Integrity:** All database operations use `AsyncSession`. Do not mix synchronous FastAPI execution clients with async SQLAlchemy loops without a properly scoped async loop fixture.
+* **No Phantom Code:** Do not write phantom endpoints or validation tests for routes that have not been explicitly declared in the active milestone checklist.
+
+## � Multi-Model AI Routing (Future Phases)
+* **Gemma4:12b Reserve:** Gemma (running locally via Ollama) is designated as the Chief Architect for future document scanning, receipt processing, and camera logging modules.
+* **Cline Constraint:** Do not attempt to prototype standalone OCR libraries or write custom vision-parsing logic for the media stack. All document and camera data streams will be routed directly to the local Gemma node in later phases.
+
+## � Operational Protocol (The Blueprint Rule)
+* **The Prompt Handshake:** Before executing ANY file-write tool or modifying code, you MUST output a concise, 3-bullet blueprint detailing your proposed changes, exact file paths, and what existing code is being preserved.
+* **Explicit Clearance Required:** You MUST wait for explicit user confirmation/approval before proceeding to edit or write any files.
+
+### �️ Schema Verification Rule- Before modifying or generating any frontend code (such as `app.py`), inspect `src/core/models.py` and `src/core/database.py` to verify that all imported SQLAlchemy classes, helper functions, and column names exist on disk. Never assume legacy frontend imports or schemas are valid.
+</file>
+
+<file path=".clinerules/01-backend.md">
+# Phase 2: Backend API, Security Core & Access Routing
+
+## Model Assignment
+* **Primary Engine:** qwen2.5-code (Local via Ollama)
+* **Execution Focus:** Build out secure, authenticated API endpoints, handle cryptographic tokens, and prepare data routers for the Streamlit frontend presentation layer.
+
+## Architecture Standards
+* **Modularity:** Maintain strict separation between database data models (`src/core`), route logic (`src/api`), and user-facing presentation tools.
+* **Human-in-the-Loop Validation:** NEVER automatically refactor code or re-run test scripts in an autonomous loop if an execution fails. If a test fails, halt immediately, present the traceback log to the Flight Director, and wait for explicit diagnostic clearance.
+* **Security First:** Ensure all endpoint logic routes through our verified, native `bcrypt` hashing utilities and async token dependency checks.
+</file>
+
+<file path="src/api/auth.py">
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import jwt, JWTError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+
+from src.core.database import get_db
+from src.core.models import User
+from src.core.schemas import UserCreate, UserOut
+from src.core.security import (
+    ALGORITHM,
+    SECRET_KEY,
+    create_access_token,
+    get_password_hash,
+    verify_password,
+)
+
+router = APIRouter(prefix="/api/auth", tags=["auth"])
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
+
+
+@router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+async def register_user(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == user_in.email))
+    existing_user = result.scalar_one_or_none()
+    if existing_user:
+        raise HTTPException(
+            status_code=400,
+            detail="Email already registered",
+        )
+
+    new_user = User(
+        email=user_in.email,
+        hashed_password=get_password_hash(user_in.password),
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    return new_user
+
+
+@router.post("/token")
+async def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.email == form_data.username))
+    user = result.scalars().first()
+
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token = create_access_token(
+        data={"sub": user.email, "role": "Dispatcher", "carrier_id": 1}
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)
+) -> User:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalars().first()
+
+    if user is None:
+        raise credentials_exception
+
+    return user
+</file>
+
+<file path="src/api/routes.py">
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from typing import List
+from src.core.database import get_db
+from src.core.models import User, Vehicle, Load
+from src.core.schemas import VehicleCreate, VehicleOut, LoadCreate, LoadOut
+from src.api.auth import get_current_user
+
+router = APIRouter()
+
+@router.post("/vehicles", response_model=VehicleOut)
+async def create_vehicle(vehicle: VehicleCreate, db: AsyncSession = Depends(get_db)):
+    db_vehicle = Vehicle(**vehicle.model_dump())
+    db.add(db_vehicle)
+    await db.commit()
+    await db.refresh(db_vehicle)
+    return db_vehicle
+
+@router.get("/vehicles", response_model=List[VehicleOut])
+async def get_vehicles(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    result = await db.execute(select(Vehicle))
+    return result.scalars().all()
+
+@router.post("/loads", response_model=LoadOut)
+async def create_load(load: LoadCreate, db: AsyncSession = Depends(get_db)):
+    db_load = Load(**load.model_dump())
+    db.add(db_load)
+    await db.commit()
+    await db.refresh(db_load)
+    return db_load
+
+@router.get("/loads", response_model=List[LoadOut])
+async def get_loads(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    result = await db.execute(select(Load))
+    return result.scalars().all()
+</file>
+
+<file path="src/core/config.py">
+import os
+
+class Settings:
+    API_KEY: str = os.getenv("API_KEY", "default_key")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./test.db")
+
+    def get_database_url(self) -> str:
+        return self.DATABASE_URL
+
+try:
+    settings = Settings()
+except Exception as e:
+    print(f"Error loading configuration: {e}")
+    exit(1)
+</file>
+
+<file path="src/core/database.py">
+import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+
+from src.core.config import settings
+
+if str(settings.DATABASE_URL).startswith("sqlite://"):
+    DATABASE_URL = str(settings.DATABASE_URL).replace("sqlite://", "sqlite+aiosqlite://")
+    SYNC_DATABASE_URL = str(settings.DATABASE_URL)
+else:
+    DATABASE_URL = str(settings.DATABASE_URL)
+    SYNC_DATABASE_URL = str(settings.DATABASE_URL).replace("sqlite+aiosqlite://", "sqlite://")
+
+# Async engine & session for FastAPI backend
+engine = create_async_engine(DATABASE_URL, echo=True)
+AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+# Sync engine & session for Streamlit frontend
+sync_engine = create_engine(SYNC_DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)
+
+Base = declarative_base()
+
+
+from typing import AsyncGenerator
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    async with AsyncSessionLocal() as session:
+        yield session
+
+
+async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
+    async with AsyncSessionLocal() as session:
+        yield session
+</file>
+
+<file path="src/core/models.py">
+from datetime import datetime, timezone
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
+from src.core.database import Base
+
+
+class Vehicle(Base):
+    __tablename__ = "vehicles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    unit_number = Column(String, unique=True, index=True, nullable=False)
+    vin = Column(String, unique=True, index=True, nullable=True)
+    make = Column(String, nullable=True)
+    model = Column(String, nullable=True)
+    year = Column(Integer, nullable=True)
+    current_odometer = Column(Integer, default=0, nullable=False)
+    status = Column(String, default="Active", nullable=False)
+    carrier_id = Column(Integer, default=1, nullable=False)
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    # ORM Relationship (Audit logs preserved - no delete-orphan cascade)
+    odometer_logs = relationship("OdometerLog", back_populates="vehicle")
+
+    # New relationship for assigned loads
+    assigned_loads = relationship("Load", back_populates="vehicle")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    username = Column(String, unique=True, index=True, nullable=True)
+    hashed_password = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True)
+    role = Column(String, default="Driver", nullable=False)
+    carrier_id = Column(Integer, default=1, nullable=False)
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    # New relationship for assigned loads
+    assigned_loads = relationship("Load", back_populates="driver")
+
+
+class Load(Base):
+    __tablename__ = "loads"
+
+    id = Column(Integer, primary_key=True, index=True)
+    load_number = Column(String, unique=True, index=True, nullable=False)
+    load_weight = Column(Integer, nullable=False)
+    commodity = Column(String, index=True, nullable=False)
+    pickup_ref = Column(String, nullable=False)
+    delivery_ref = Column(String, nullable=False)
+    dispatcher_notes = Column(String, nullable=True)
+    status = Column(String, default="unassigned", nullable=False)
+    carrier_id = Column(Integer, default=1, nullable=False)
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    # New columns for assignments
+    assigned_driver_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assigned_vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True)
+
+    # ORM Relationships
+    driver = relationship("User", back_populates="assigned_loads")
+    vehicle = relationship("Vehicle", back_populates="assigned_loads")
+
+
+class OdometerLog(Base):
+    __tablename__ = "odometer_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=False)
+    reading = Column(Integer, nullable=False)
+    notes = Column(String, nullable=True)
+    logged_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    # ORM Relationship
+    vehicle = relationship("Vehicle", back_populates="odometer_logs")
+</file>
+
+<file path="src/core/parser.py">
+
+</file>
+
+<file path="src/core/schemas.py">
+from typing import Optional, Any
+from pydantic import BaseModel, EmailStr, ConfigDict
+
+class VehicleBase(BaseModel):
+    unit_number: str
+    status: str
+
+
+class UserBase(BaseModel):
+    email: EmailStr
+    username: Optional[str] = None
+    role: Optional[str] = "Driver"
+    carrier_id: int = 1
+
+class VehicleCreate(VehicleBase):
+    pass
+
+class UserCreate(UserBase):
+    password: str
+
+class VehicleOut(VehicleBase):
+    id: int
+    carrier_id: Any  # Using Any to allow flexibility for now, will replace with specific type if needed
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserOut(UserBase):
+    id: int
+    role: str
+    carrier_id: int
+
+    is_active: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+# Load schemas
+from typing import Optional
+
+class LoadBase(BaseModel):
+    load_number: str
+    load_weight: int
+    commodity: str
+    pickup_ref: str
+    delivery_ref: str
+    dispatcher_notes: Optional[str] = None
+    status: str
+    carrier_id: int
+
+    # New fields for assignments
+    assigned_driver_id: Optional[int] = None
+    assigned_vehicle_id: Optional[int] = None
+
+class LoadCreate(LoadBase):
+    pass
+
+class LoadOut(LoadBase):
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+</file>
+
+<file path="src/core/security.py">
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+from jose import jwt
+import bcrypt
+
+try:
+    from src.core.config import settings
+    SECRET_KEY = settings.SECRET_KEY
+    ALGORITHM = settings.ALGORITHM
+except (ImportError, AttributeError):
+    SECRET_KEY = "TEST_SECRET_KEY_FALLBACK_FOR_SECURITY_ISOLATION_XYZ123"
+    ALGORITHM = "HS256"
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+
+def get_password_hash(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+    
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+</file>
+
+<file path="src/core/seed.py">
+import asyncio
+from src.core.database import AsyncSessionLocal, sync_engine
+from src.core.database import AsyncSessionLocal, sync_engine, Base
+from src.core.models import User, Vehicle, Load
+
+def reset_database():
+    """Drop and recreate all database tables using the synchronous engine."""
+    Base.metadata.drop_all(bind=sync_engine)
+    Base.metadata.create_all(bind=sync_engine)
+
+async def seed_database():
+    # 1. Fresh schema reset
+    reset_database()
+    
+    async with AsyncSessionLocal() as db:
+        try:
+            # 2. Seed Users FIRST so their IDs exist
+            dispatcher = User(
+                id=1,
+                email="dispatcher@fleetscout.com",
+                username="dispatcher1",
+                hashed_password="default_mock_password_hash",
+                role="Dispatcher",
+                carrier_id=1
+            )
+            driver1 = User(
+                id=2,
+                email="driver1@fleetscout.com",
+                username="driver1",
+                hashed_password="default_mock_password_hash",
+                role="Driver",
+                carrier_id=1
+            )
+            db.add_all([dispatcher, driver1])
+            await db.commit()
+
+            # 3. Seed Vehicles
+            truck1 = Vehicle(unit_number="TRK001", status="Active", carrier_id=1)
+            truck2 = Vehicle(unit_number="TRK002", status="Grounded", carrier_id=1)
+            db.add_all([truck1, truck2])
+            await db.commit()
+
+            # 4. Seed Active Load (linking Driver #2 and Truck #1 AFTER both exist)
+            load1 = Load(
+                load_number="LD-8801",
+                load_weight=42000.0,
+                commodity="Refrigerated Goods",
+                status="In Transit",
+                carrier_id=1,
+                assigned_driver_id=driver1.id,
+                assigned_vehicle_id=truck1.id,
+                pickup_ref="PU-1001",
+                delivery_ref="DEL-2002"
+            )
+            db.add(load1)
+            await db.commit()
+
+            print("Database successfully seeded with baseline assets!")
+        except Exception as e:
+            await db.rollback()
+            print(f"Seeding failed: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(seed_database())
+</file>
+
+<file path="src/core/services.py">
+from sqlalchemy.orm import Session
+from src.core.models import Vehicle, OdometerLog
+
+
+def update_vehicle_odometer(
+    db: Session, vehicle_id: int, new_reading: int, notes: str = None
+) -> OdometerLog:
+    """
+    Atomically creates an OdometerLog entry and updates Vehicle.current_odometer.
+    Enforces that new readings cannot be lower than the current reading.
+    """
+    # Fetch a fresh, active instance inside the current db session
+    vehicle = db.get(Vehicle, vehicle_id)
+    if not vehicle:
+        raise ValueError(f"Vehicle with ID {vehicle_id} not found.")
+
+    if new_reading < vehicle.current_odometer:
+        raise ValueError(
+            f"Invalid reading ({new_reading:,} miles): Cannot be lower than "
+            f"current odometer reading ({vehicle.current_odometer:,} miles)."
+        )
+
+    # 1. Create audit log
+    log_entry = OdometerLog(
+        vehicle_id=vehicle.id, reading=new_reading, notes=notes
+    )
+
+    # 2. Update parent vehicle reading
+    vehicle.current_odometer = new_reading
+
+    # 3. Commit atomically
+    db.add(log_entry)
+    db.commit()
+    db.refresh(vehicle)
+    db.refresh(log_entry)
+
+    return log_entry
+</file>
+
+<file path="src/ui/yard_board.py">
+import streamlit as st
+from sqlalchemy.orm import Session
+from src.core.database import SessionLocal
+from src.core.models import Vehicle, User, Load
+
+st.set_page_config(page_title="Yard Board", layout="wide")
+
+def fetch_data():
+    with SessionLocal() as session:
+        from sqlalchemy.orm import joinedload
+
+        vehicles = session.query(Vehicle).options(joinedload(Vehicle.assigned_loads)).all()
+        users = {user.id: user for user in session.query(User).all()}
+        loads = {load.id: load for load in session.query(Load).all()}
+        return vehicles, users, loads
+
+def render_yard_board(vehicles, users, loads):
+    st.title("Interactive Yard Board")
+
+    status_filter = st.sidebar.multiselect(
+        "Filter Vehicle Status",
+        options=["Active", "Grounded"],
+        default=["Active", "Grounded"]
+    )
+
+    table_data = []
+    for vehicle in vehicles:
+        if vehicle.status not in status_filter:
+            continue
+
+        driver_name = "Unassigned"
+        load_number = "No Load Assigned"
+
+        if vehicle.assigned_loads:
+            first_load = vehicle.assigned_loads[0]
+            load_number = first_load.load_number if first_load else "No Load Assigned"
+            if first_load.assigned_driver_id in users:
+                driver_name = users[first_load.assigned_driver_id].username
+
+        table_data.append({
+            "Unit Number": vehicle.unit_number,
+            "Status": "✅ Active" if vehicle.status == "Active" else "❌ Grounded",
+            "Assigned Driver": driver_name,
+            "Active Load #": load_number
+        })
+
+    st.dataframe(table_data, use_container_width=True)
+
+def main():
+    vehicles, users, loads = fetch_data()
+    render_yard_board(vehicles, users, loads)
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="tests/conftest.py">
+import pytest
+from fastapi.testclient import TestClient
+from main import app
+
+@pytest.fixture(scope="module")
+def client():
+    with TestClient(app) as c:
+        yield c
+</file>
+
+<file path="tests/test_auth.py">
+import pytest
+from datetime import timedelta
+from jose import jwt, JWTError
+from src.core.security import get_password_hash, verify_password, create_access_token
+
+def test_password_hashing():
+    password = "fleet_secure_password_123"
+    hashed = get_password_hash(password)
+    
+    # Assert hash is not plaintext
+    assert hashed != password
+    # Assert verification succeeds with correct password
+    assert verify_password(password, hashed) is True
+    # Assert verification fails with incorrect password
+    assert verify_password("wrong_password", hashed) is False
+
+def test_create_access_token():
+    payload_data = {"sub": "dispatcher@fleetscout.com", "role": "Dispatcher", "carrier_id": 1}
+    token = create_access_token(data=payload_data, expires_delta=timedelta(minutes=15))
+    
+    assert isinstance(token, str)
+    assert len(token) > 0
+
+    # Test decoding the generated token to ensure payload integrity
+    # We will use temporary dummy credentials for verification structure
+    try:
+        # Note: 'SECRET_KEY' and 'ALGORITHM' will be managed via src.core.config
+        from src.core.config import settings
+        secret = settings.SECRET_KEY
+        algo = settings.ALGORITHM
+    except (ImportError, AttributeError):
+        secret = "TEST_SECRET_KEY_FALLBACK_FOR_SECURITY_ISOLATION_XYZ123"
+        algo = "HS256"
+
+    decoded_data = jwt.decode(token, secret, algorithms=[algo])
+    assert decoded_data.get("sub") == "dispatcher@fleetscout.com"
+    assert decoded_data.get("role") == "Dispatcher"
+    assert decoded_data.get("carrier_id") == 1
+</file>
+
+<file path="tests/test_config.py">
+def test_sample():
+    assert True
+</file>
+
+<file path="tests/test_database.py">
+def test_sample():
+    assert True
+</file>
+
+<file path="tests/test_routes.py">
+import pytest
+
+@pytest.mark.asyncio
+async def test_user_registration(client):
+    response = client.post(
+        "/api/auth/register",
+        json={"email": "test@example.com", "password": "password123"}
+    )
+    assert response.status_code in (200, 201)
+</file>
+
+<file path=".gitignore">
+.twosix_modules/
+CLAUDE.md
+_fix_plan.md
+twosix-swap.sh
+.DS_Store
+__pycache__/
+*.pyc
+
+venv/
+*.db
+test.db
+.vscode/
+</file>
+
+<file path="app.py">
+import streamlit as st
+import requests
+from sqlalchemy import select
+from zoneinfo import ZoneInfo
+from src.core.database import SessionLocal
+from src.core.models import Vehicle, User, Load, OdometerLog
+from src.core.services import update_vehicle_odometer
+
+# Set page config
+st.set_page_config(
+    page_title="Fleet Scout Terminal",
+    page_icon="�",
+)
+
+
+def format_timestamp(ts):
+    """Converts a UTC timestamp to Pacific Time and formats as 'MM/DD/YYYY HH:MM AM/PM'."""
+    if ts is None:
+        return "N/A"
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=ZoneInfo("UTC"))
+    pacific_time = ts.astimezone(ZoneInfo("America/Los_Angeles"))
+    return pacific_time.strftime("%m/%d/%Y %I:%M %p")
+
+
+def format_vehicle_option(vehicle):
+    """Formats vehicle options for select boxes with Unit # and VIN fallback."""
+    if not vehicle:
+        return "Select a vehicle"
+    unit = getattr(vehicle, "unit_number", "Unknown")
+    vin = getattr(vehicle, "vin", None)
+    vin_str = f" ({vin})" if vin else ""
+    return f"Truck #{unit}{vin_str} | Odo: {vehicle.current_odometer:,} mi"
+
+
+# ==========================================
+# AUTHENTICATION & LOGIN (AR-2.1)
+# ==========================================
+def login():
+    st.subheader("Login to Fleet Scout")
+    with st.form(key="login_form", clear_on_submit=False):
+        email = st.text_input("Email")
+        password = st.text_input("Password", type="password")
+        submit_button = st.form_submit_button(label="Login")
+
+        if submit_button:
+            try:
+                # 1. Authenticate against FastAPI OAuth2 endpoint
+                response = requests.post(
+                    "http://localhost:8000/api/auth/token",
+                    data={"username": email, "password": password},
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                # 2. Fetch User Record from DB to get actual assigned Role
+                db = SessionLocal()
+                try:
+                    user = db.query(User).filter_by(email=email).first()
+                    if not user:
+                        st.error("Auth succeeded, but no user record was found in the database.")
+                        return
+                    user_role = user.role
+                except Exception as db_err:
+                    db.rollback()
+                    st.error(f"Database error during user lookup: {db_err}")
+                    return
+                finally:
+                    db.close()
+
+                # 3. Store authentication and role state
+                st.session_state["is_authenticated"] = True
+                st.session_state["access_token"] = data["access_token"]
+                st.session_state["user_email"] = email
+                st.session_state["user_role"] = user_role
+
+                # Set initial view mode based on role
+                if user_role in ["Owner", "Dispatcher"]:
+                    st.session_state["active_view"] = "Dispatch View"
+                else:
+                    st.session_state["active_view"] = "Driver View"
+
+                st.success(f"Welcome back! Logged in as {user_role}.")
+                st.rerun()
+            except requests.exceptions.RequestException as e:
+                st.error(f"Failed to log in: {e}")
+
+
+# ==========================================
+# DISPATCHER VIEWS
+# ==========================================
+def active_fleet():
+    db = SessionLocal()
+    try:
+        st.subheader("Active Fleet Vehicles")
+        with st.expander("Register New Vehicle"):
+            with st.form(key="add_vehicle_form", clear_on_submit=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    unit_number = st.text_input("Unit Number (e.g. 101)")
+                    make = st.text_input("Make (e.g. Freightliner)")
+                    year = st.number_input("Year", min_value=1990, max_value=2030, value=2024)
+                with col2:
+                    vin = st.text_input("VIN (17 Characters)")
+                    model = st.text_input("Model (e.g. Cascadia)")
+                    initial_odometer = st.number_input("Initial Odometer (Miles)", min_value=0, value=0)
+
+                status = st.selectbox("Status", ["Active", "In Transit", "Maintenance"])
+                submit_vehicle = st.form_submit_button("Register Vehicle")
+
+                if submit_vehicle:
+                    if not unit_number.strip():
+                        st.error("Unit Number is required.")
+                    else:
+                        try:
+                            new_v = Vehicle(
+                                unit_number=unit_number.strip(),
+                                vin=vin.strip() if vin.strip() else None,
+                                make=make.strip() if make.strip() else None,
+                                model=model.strip() if model.strip() else None,
+                                year=int(year),
+                                current_odometer=int(initial_odometer),
+                                status=status,
+                                carrier_id=1,
+                            )
+                            db.add(new_v)
+                            db.commit()
+                            st.success(f"Vehicle #{unit_number} registered successfully!")
+                            st.rerun()
+                        except IntegrityError:
+                            db.rollback()
+                            st.error("Registration failed: A vehicle with this Unit Number or VIN is already registered in the system.")
+                        except Exception as ex:
+                            db.rollback()
+                            st.error(f"Failed to register vehicle: {ex}")
+
+        stmt = select(Vehicle)
+        results = db.execute(stmt).scalars().all()
+
+        if results:
+            data = [
+                {
+                    "Vehicle ID": v.id,
+                    "Unit #": v.unit_number,
+                    "VIN": v.vin or "N/A",
+                    "Make/Model/Year": f"{v.year or ''} {v.make or ''} {v.model or ''}".strip() or "N/A",
+                    "Current Odometer": f"{v.current_odometer:,} mi",
+                    "Status": v.status,
+                }
+                for v in results
+            ]
+            st.dataframe(data, use_container_width=True)
+        else:
+            st.info("No active vehicles currently reported.")
+    except Exception as e:
+        db.rollback()
+        st.error(f"Error connecting to the fleet database: {e}")
+    finally:
+        db.close()
+
+
+def odometer_updates():
+    db = SessionLocal()
+    try:
+        st.subheader("Odometer & Maintenance Logging")
+
+        stmt_v = select(Vehicle)
+        vehicles = db.execute(stmt_v).scalars().all()
+
+        if not vehicles:
+            st.warning("No vehicles available in the database. Please register a vehicle first under 'Active Fleet'.")
+            return
+
+        with st.expander("Log New Odometer Reading", expanded=True):
+            with st.form(key="add_odo_form", clear_on_submit=True):
+                selected_vehicle = st.selectbox(
+                    "Select Vehicle",
+                    options=vehicles,
+                    format_func=format_vehicle_option,
+                )
+                new_reading = st.number_input("New Odometer Reading (Miles)", min_value=0, step=1)
+                notes = st.text_input("Notes (e.g., Scheduled PM, Driver Shift Change)")
+                submit_odo = st.form_submit_button("Submit Update")
+
+                if submit_odo:
+                    if not selected_vehicle:
+                        st.error("Please select a valid vehicle.")
+                    else:
+                        try:
+                            update_vehicle_odometer(
+                                db=db,
+                                vehicle_id=selected_vehicle.id,
+                                new_reading=int(new_reading),
+                                notes=notes if notes.strip() else None,
+                            )
+                            st.success(
+                                f"Odometer updated for Truck #{selected_vehicle.unit_number} to {new_reading:,} miles!"
+                            )
+                            st.rerun()
+                        except ValueError as ve:
+                            st.error(str(ve))
+
+        st.subheader("Odometer Audit History")
+        stmt_o = select(OdometerLog).order_by(OdometerLog.logged_at.desc())
+        results_o = db.execute(stmt_o).scalars().all()
+
+        if results_o:
+            data_o = [
+                {
+                    "Log ID": o.id,
+                    "Truck #": o.vehicle.unit_number if o.vehicle else f"ID: {o.vehicle_id}",
+                    "Odometer Reading": f"{o.reading:,} mi",
+                    "Notes": o.notes or "-",
+                    "Logged At": format_timestamp(o.logged_at),
+                }
+                for o in results_o
+            ]
+            st.dataframe(data_o, use_container_width=True)
+        else:
+            st.info("No odometer logs recorded yet.")
+    except Exception as e:
+        db.rollback()
+        st.error(f"Error connecting to the database: {e}")
+    finally:
+        db.close()
+
+
+def active_loads():
+    db = SessionLocal()
+    try:
+        st.subheader("Active Loads")
+        stmt = select(Load)
+        results = db.execute(stmt).scalars().all()
+
+        if results:
+            data = [
+                {
+                    "Load #": l.load_number,
+                    "Commodity": l.commodity,
+                    "Weight (lbs)": f"{l.load_weight:,}",
+                    "Pickup Ref": l.pickup_ref,
+                    "Delivery Ref": l.delivery_ref,
+                    "Status": l.status,
+                }
+                for l in results
+            ]
+            st.dataframe(data, use_container_width=True)
+        else:
+            st.info("No active loads available.")
+    except Exception as e:
+        db.rollback()
+        st.error(f"Error connecting to the fleet database: {e}")
+    finally:
+        db.close()
+
+
+# ==========================================
+# DRIVER VIEW (MOBILE OPTIMIZED)
+# ==========================================
+def driver_console():
+    st.subheader("� Driver Mobile Terminal")
+    st.info("Welcome to your on-road console. Keep your odometer logs updated before and after shift trips.")
+
+    db = SessionLocal()
+    try:
+        stmt_v = select(Vehicle)
+        vehicles = db.execute(stmt_v).scalars().all()
+
+        if vehicles:
+            st.markdown("### Assigned / Active Fleet Quick Overview")
+            for v in vehicles:
+                with st.container():
+                    st.markdown(f"**Truck #{v.unit_number}** — `{v.status}`")
+                    st.caption(f"VIN: {v.vin or 'N/A'} | Current Odometer: **{v.current_odometer:,} mi**")
+                    st.divider()
+        else:
+            st.info("No active vehicles currently assigned.")
+    except Exception as e:
+        db.rollback()
+        st.error(f"Error loading driver console: {e}")
+    finally:
+        db.close()
+
+
+# ==========================================
+# MAIN ROUTING & HAT-SWITCHER (AR-2.2 & AR-2.3)
+# ==========================================
+def main():
+    st.title("Fleet Scout Terminal")
+    st.markdown("### Two Six Studios")
+
+    if "is_authenticated" not in st.session_state:
+        st.session_state["is_authenticated"] = False
+
+    if not st.session_state["is_authenticated"]:
+        menu = st.sidebar.selectbox("Navigation", ["Login"])
+        if menu == "Login":
+            login()
+        return
+
+    # User Header Info
+    user_email = st.session_state.get("user_email", "User")
+    user_role = st.session_state.get("user_role", "Driver")
+
+    st.sidebar.markdown(f"Logged in as: **{user_email}**")
+    st.sidebar.markdown(f"Assigned Role: **`{user_role}`**")
+
+    # AR-2.3: Owner Role Toggle (Hat-Switcher)
+    if user_role == "Owner":
+        st.sidebar.divider()
+        st.sidebar.markdown("### � Owner Hat-Switcher")
+        owner_view_choice = st.sidebar.radio(
+            "Select Viewport Mode:",
+            ["Dispatch View", "Driver View"],
+            index=0 if st.session_state.get("active_view") == "Dispatch View" else 1,
+        )
+        st.session_state["active_view"] = owner_view_choice
+
+    elif user_role == "Dispatcher":
+        st.session_state["active_view"] = "Dispatch View"
+    else:
+        st.session_state["active_view"] = "Driver View"
+
+    active_view = st.session_state.get("active_view", "Dispatch View")
+    st.sidebar.caption(f"Active Mode: **{active_view}**")
+
+    if st.sidebar.button("Logout"):
+        st.session_state["is_authenticated"] = False
+        st.session_state["access_token"] = None
+        st.session_state["user_role"] = None
+        st.rerun()
+
+    st.sidebar.divider()
+
+    # AR-2.2: Routing Logic based on Active View
+    if active_view == "Dispatch View":
+        menu = st.sidebar.selectbox("Navigation", ["Active Fleet", "Odometer Updates", "Active Loads"])
+        if menu == "Active Fleet":
+            active_fleet()
+        elif menu == "Odometer Updates":
+            odometer_updates()
+        elif menu == "Active Loads":
+            active_loads()
+
+    elif active_view == "Driver View":
+        menu = st.sidebar.selectbox("Navigation", ["Driver Console", "Log Odometer"])
+        if menu == "Driver Console":
+            driver_console()
+        elif menu == "Log Odometer":
+            odometer_updates()
+
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="ARCHITECTURE.md">
+# Project Architecture & Standards
+
+## Tech Stack
+- **Framework:** FastAPI (Asynchronous ASGI execution engine)
+- **Database Layer:** SQLAlchemy ORM utilizing an asynchronous engine workflow
+- **Database Driver:** aiosqlite (Asynchronous SQLite)
+
+## Critical Coding Standards
+1. **Strictly Asynchronous Execution:** Traditional synchronous database patterns (e.g., 'create_all(bind=engine)') are strictly prohibited.
+2. **Schema Control:** All structural schema initializations must happen safely within async connection loops ('engine.begin()') inside lifecycle event hooks.
+3. **No Code Snippet Mixing:** Do not introduce synchronous code paradigms into modular source files. Cross-reference edits against existing configuration files to preserve consistency.
+</file>
+
+<file path="fleet_state.json">
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FleetScout Driver State Contract",
+  "description": "Explicit string contract definitions for localized single-tenant driver states.",
+  "type": "object",
+  "required": ["driver_id", "current_state", "timestamp"],
+  "properties": {
+    "driver_id": {
+      "type": "string"
+    },
+    "current_state": {
+      "type": "string",
+      "enum": ["Available", "On Route", "On Break", "Off Duty"]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
+</file>
+
+<file path="main.py">
+from fastapi import FastAPI, Request
+from src.core.database import Base, engine, AsyncSessionLocal
+from src.core.models import User, Vehicle, Load  # Register models with SQLAlchemy
+
+from src.api.auth import router
+
+app = FastAPI()
+app.include_router(router)
+
+# Define the startup function
+async def on_startup():
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        print(f"Error during startup: {e}")
+        exit(1)
+
+# Define the shutdown function
+async def on_shutdown():
+    pass  # Implement the actual logic to close the database here
+
+@app.middleware("http")
+async def lifespan(request: Request, call_next):
+    if request.method == "GET" and request.url.path == "/health":
+        await on_startup()
+    response = await call_next(request)
+    return response
+
+# Register startup and shutdown events
+app.add_event_handler("startup", on_startup)
+app.add_event_handler("shutdown", on_shutdown)
+
+@app.get("/health", tags=["Health Check"])
+async def read_root():
+    return {"status": "healthy"}
+
+app.include_router(router, prefix="/api/auth", tags=["auth"])
+</file>
+
+<file path="pipeline_check.json">
+{"test": "operational"}
+</file>
+
+<file path="reset_users.py">
+from src.core.database import SessionLocal, sync_engine, Base
+from src.core.models import User
+from src.core.security import get_password_hash, verify_password
+
+# 1. Ensure tables exist on the active database
+Base.metadata.create_all(bind=sync_engine)
+
+db = SessionLocal()
+
+# 2. Clear existing users to start fresh
+db.query(User).delete()
+db.commit()
+
+# 3. Hash the test password
+pwd_hash = get_password_hash("password123")
+
+# 4. Create test accounts
+test_users = [
+    User(
+        email="owner@twosix.com",
+        username="owner@twosix.com",
+        hashed_password=pwd_hash,
+        role="Owner",
+        carrier_id=1,
+    ),
+    User(
+        email="dispatcher@twosix.com",
+        username="dispatcher@twosix.com",
+        hashed_password=pwd_hash,
+        role="Dispatcher",
+        carrier_id=1,
+    ),
+    User(
+        email="driver@twosix.com",
+        username="driver@twosix.com",
+        hashed_password=pwd_hash,
+        role="Driver",
+        carrier_id=1,
+    ),
+]
+
+db.add_all(test_users)
+db.commit()
+
+print("✅ Database refreshed successfully!\n")
+
+# 5. Direct verification check
+print("--- USER VERIFICATION AUDIT ---")
+for email in ["owner@twosix.com", "dispatcher@twosix.com", "driver@twosix.com"]:
+    u = db.query(User).filter_by(email=email).first()
+    if u:
+        is_valid = verify_password("password123", u.hashed_password)
+        print(f"User: {u.email:<22} | Role: {u.role:<10} | Password Match: {is_valid}")
+    else:
+        print(f"❌ Missing user: {email}")
+
+db.close()
+</file>
+
+</files>

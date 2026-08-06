@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 from src.core.database import SessionLocal
 from src.core.models import Vehicle, User, Load, OdometerLog
 from src.core.services import update_vehicle_odometer
+from src.ui.dispatch_panel import render_dispatch_panel
+from src.ui.load_watch_board import render_load_watch_board
 
 # Set page config
 st.set_page_config(
@@ -334,13 +336,17 @@ def main():
 
     # AR-2.2: Routing Logic based on Active View
     if active_view == "Dispatch View":
-        menu = st.sidebar.selectbox("Navigation", ["Active Fleet", "Odometer Updates", "Active Loads"])
+        menu = st.sidebar.selectbox("Navigation", ["Active Fleet", "Odometer Updates", "Active Loads", "Dispatch & Yard Board", "Load Watch Board"])
         if menu == "Active Fleet":
             active_fleet()
         elif menu == "Odometer Updates":
             odometer_updates()
         elif menu == "Active Loads":
             active_loads()
+        elif menu == "Dispatch & Yard Board":
+            render_dispatch_panel()
+        elif menu == "Load Watch Board":
+            render_load_watch_board()
 
     elif active_view == "Driver View":
         menu = st.sidebar.selectbox("Navigation", ["Driver Console", "Log Odometer"])

@@ -23,6 +23,9 @@ class Vehicle(Base):
     # ORM Relationship (Audit logs preserved - no delete-orphan cascade)
     odometer_logs = relationship("OdometerLog", back_populates="vehicle")
 
+    # New relationship for assigned loads
+    assigned_loads = relationship("Load", back_populates="vehicle")
+
 
 class User(Base):
     __tablename__ = "users"
@@ -37,6 +40,9 @@ class User(Base):
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
+
+    # New relationship for assigned loads
+    assigned_loads = relationship("Load", back_populates="driver")
 
 
 class Load(Base):
@@ -54,6 +60,29 @@ class Load(Base):
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
+
+    # New columns for assignments
+    assigned_driver_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assigned_vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True)
+
+    # ORM Relationships
+    driver = relationship("User", back_populates="assigned_loads")
+    vehicle = relationship("Vehicle", back_populates="assigned_loads")
+    status_logs = relationship("LoadStatusLog", back_populates="load")
+
+
+class LoadStatusLog(Base):
+    __tablename__ = "load_status_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    load_id = Column(Integer, ForeignKey("loads.id"), nullable=False)
+    status = Column(String, nullable=False)
+    timestamp = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    # ORM Relationship
+    load = relationship("Load", back_populates="status_logs")
 
 
 class OdometerLog(Base):

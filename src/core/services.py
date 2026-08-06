@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
-from src.core.models import Vehicle, OdometerLog
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.core.models import Vehicle, OdometerLog, Load, LoadStatusLog
 
 
 def update_vehicle_odometer(
@@ -35,3 +36,63 @@ def update_vehicle_odometer(
     db.refresh(log_entry)
 
     return log_entry
+
+
+async def create_dispatched_load(
+    session: AsyncSession,
+    load_number: str,
+    load_weight: int,
+    commodity: str,
+    pickup_ref: str,
+    delivery_ref: str,
+    dispatcher_notes: str = None,
+    assigned_driver_id: int = None,
+    assigned_vehicle_id: int = None,
+) -> Load:
+    """Atomically inserts a new Load record with 'dispatched' status."""
+    db_load = Load(
+        load_number=load_number,
+        load_weight=load_weight,
+        commodity=commodity,
+        pickup_ref=pickup_ref,
+        delivery_ref=delivery_ref,
+        dispatcher_notes=dispatcher_notes,
+        status="dispatched",
+        carrier_id=1,
+        assigned_driver_id=assigned_driver_id,
+        assigned_vehicle_id=assigned_vehicle_id,
+    )
+    session.add(db_load)
+    await session.commit()
+    await session.refresh(db_load)
+    return db_load
+
+
+async def update_load_status(
+    session: AsyncSession, load_id: int, status: str
+) -> LoadStatusLog:
+    """Sets a Load's active status and logs a timestamped entry for the board timeline."""
+    load = await session.get(Load, load_id)
+    if not load:
+        raise ValueError(f"Load with ID {load_id} not found.")
+
+    load.status = status
+    log_entry = LoadStatusLog(load_id=load.id, status=status)
+    session.add(log_entry)
+    await session.commit()
+    await session.refresh(load)
+    await session.refresh(log_entry)
+    return log_entry
+
+
+async def get_active_loads(session: AsyncSession):
+    """Returns active dispatched loads with driver/vehicle and status-history timeline."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    stmt = (
+        select(Load)
+        .options(selectinload(Load.driver), selectinload(Load.vehicle), selectinload(Load.status_logs))
+        .order_by(Load.created_at.desc())
+    )
+    return (await session.execute(stmt)).scalars().all()

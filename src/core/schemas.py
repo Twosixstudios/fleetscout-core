@@ -46,6 +46,10 @@ class LoadBase(BaseModel):
     status: str
     carrier_id: int
 
+    # New fields for assignments
+    assigned_driver_id: Optional[int] = None
+    assigned_vehicle_id: Optional[int] = None
+
 class LoadCreate(LoadBase):
     pass
 
