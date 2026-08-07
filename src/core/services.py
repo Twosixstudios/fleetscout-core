@@ -77,15 +77,20 @@ async def create_dispatched_load(
 
 
 async def update_load_status(
-    session: AsyncSession, load_id: int, status: str
+    session: AsyncSession, load_id: int, status: str, gps_lat: float = None, gps_lng: float = None
 ) -> LoadStatusLog:
-    """Sets a Load's active status and logs a timestamped entry for the board timeline."""
+    """Sets a Load's active status and logs a timestamped entry (with optional GPS) for the board timeline."""
     load = await session.get(Load, load_id)
     if not load:
         raise ValueError(f"Load with ID {load_id} not found.")
 
     load.status = status
-    log_entry = LoadStatusLog(load_id=load.id, status=status)
+    log_entry = LoadStatusLog(
+        load_id=load.id,
+        status=status,
+        gps_lat=gps_lat,
+        gps_lng=gps_lng,
+    )
     session.add(log_entry)
     await session.commit()
     await session.refresh(load)

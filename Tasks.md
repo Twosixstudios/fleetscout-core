@@ -17,7 +17,7 @@ kanban-plugin: list
 	**Target Deliverable:**
 	Mobile-optimized driver tools: quick-ref load briefing, one-tap status toggles, structured repair reporting, and HOS/duty clock planning.
 	
-	**Overall Progress:** 1 / 4 Tasks Completed (25%)
+	**Overall Progress:** 2 / 4 Tasks Completed (50%)
 
 
 ## 🔒 Phase 1: Future-Proof Schema & Database Foundation
@@ -70,7 +70,7 @@ kanban-plugin: list
 - [x] **Task 4.1: Quick-Ref Load Briefing (`DS-4.1`)** `#priority/high`
 	- **Description:** Lightweight mobile-responsive view showing active load details: Load #, Pickup/Delivery Refs, Commodity, Weight, and Dispatcher Notes.
 	- **Prerequisites:** Task 3.4
-- [ ] **Task 4.2: One-Tap Status Toggles (`DS-4.2`)** `#priority/high`
+- [x] **Task 4.2: One-Tap Status Toggles (`DS-4.2`)** `#priority/high`
 	- **Description:** Touch-friendly buttons for driver states (`At Shipper`, `Loaded`, `En Route`, `Delivered`). On tap, log GPS & timestamp.
 	- **Prerequisites:** Task 4.1
 - [ ] **Task 4.3: Structured Repair Form (`DS-4.3`)** `#priority/medium`

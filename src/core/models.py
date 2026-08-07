@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey
 from sqlalchemy.orm import relationship
 from src.core.database import Base
 
@@ -81,6 +81,8 @@ class LoadStatusLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     load_id = Column(Integer, ForeignKey("loads.id"), nullable=False)
     status = Column(String, nullable=False)
+    gps_lat = Column(Float, nullable=True)
+    gps_lng = Column(Float, nullable=True)
     timestamp = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
