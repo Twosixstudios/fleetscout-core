@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.core.models import Vehicle, OdometerLog, Load, LoadStatusLog
+from src.core.models import Vehicle, OdometerLog, Load, LoadStatusLog, RepairReport
 
 
 def update_vehicle_odometer(
@@ -96,6 +96,47 @@ async def update_load_status(
     await session.refresh(load)
     await session.refresh(log_entry)
     return log_entry
+
+
+async def create_repair_report(
+    session: AsyncSession,
+    driver_id: int,
+    category: str,
+    description: str = None,
+    photo_path: str = None,
+    vehicle_id: int = None,
+    load_id: int = None,
+    gps_lat: float = None,
+    gps_lng: float = None,
+) -> RepairReport:
+    """Atomically persists a structured driver issue report (Task DS-4.3)."""
+    report = RepairReport(
+        category=category,
+        description=description,
+        photo_path=photo_path,
+        status="reported",
+        driver_id=driver_id,
+        vehicle_id=vehicle_id,
+        load_id=load_id,
+        gps_lat=gps_lat,
+        gps_lng=gps_lng,
+    )
+    session.add(report)
+    await session.commit()
+    await session.refresh(report)
+    return report
+
+
+async def get_recent_repair_reports(
+    session: AsyncSession, driver_id: int = None, limit: int = 20
+):
+    """Returns recent repair reports, optionally filtered to one driver."""
+    from sqlalchemy import select
+
+    stmt = select(RepairReport).order_by(RepairReport.created_at.desc()).limit(limit)
+    if driver_id is not None:
+        stmt = stmt.where(RepairReport.driver_id == driver_id)
+    return (await session.execute(stmt)).scalars().all()
 
 
 async def unground_vehicle(

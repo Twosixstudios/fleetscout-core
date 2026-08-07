@@ -104,3 +104,31 @@ class OdometerLog(Base):
 
     # ORM Relationship
     vehicle = relationship("Vehicle", back_populates="odometer_logs")
+
+
+class RepairReport(Base):
+    """Structured mobile issue report submitted by a driver (Task DS-4.3)."""
+
+    __tablename__ = "repair_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    category = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    photo_path = Column(String, nullable=True)
+    status = Column(String, default="reported", nullable=False)
+    driver_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True)
+    load_id = Column(Integer, ForeignKey("loads.id"), nullable=True)
+    gps_lat = Column(Float, nullable=True)
+    gps_lng = Column(Float, nullable=True)
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    # ORM Relationships
+    driver = relationship("User")
+    vehicle = relationship("Vehicle")
+    load = relationship("Load")
+
+    # Task DS-4.3 approved categories
+    REPAIR_CATEGORIES = ("Brakes", "Tires", "Lights", "Engine Light", "Trailer")
