@@ -8,6 +8,7 @@ from src.core.services import update_vehicle_odometer
 from src.ui.dispatch_panel import render_dispatch_panel
 from src.ui.load_watch_board import render_load_watch_board
 from src.ui.maintenance_hub import render_maintenance_hub
+from src.ui.driver_briefing import render_driver_briefing
 
 # Set page config
 st.set_page_config(
@@ -68,6 +69,7 @@ def login():
 
                 # Store authentication and role state
                 st.session_state["is_authenticated"] = True
+                st.session_state["user_id"] = user.id
                 st.session_state["access_token"] = access_token
                 st.session_state["user_email"] = email
                 st.session_state["user_role"] = user_role
@@ -259,28 +261,17 @@ def active_loads():
 # DRIVER VIEW (MOBILE OPTIMIZED)
 # ==========================================
 def driver_console():
-    st.subheader("� Driver Mobile Terminal")
-    st.info("Welcome to your on-road console. Keep your odometer logs updated before and after shift trips.")
+    st.subheader("🚚 Driver Mobile Terminal")
+    st.info("Welcome to your on-road console. Review your load briefing below and keep odometer logs updated.")
 
-    db = SessionLocal()
-    try:
-        stmt_v = select(Vehicle)
-        vehicles = db.execute(stmt_v).scalars().all()
+    driver_id = st.session_state.get("user_id")
+    user_email = st.session_state.get("user_email")
 
-        if vehicles:
-            st.markdown("### Assigned / Active Fleet Quick Overview")
-            for v in vehicles:
-                with st.container():
-                    st.markdown(f"**Truck #{v.unit_number}** — `{v.status}`")
-                    st.caption(f"VIN: {v.vin or 'N/A'} | Current Odometer: **{v.current_odometer:,} mi**")
-                    st.divider()
-        else:
-            st.info("No active vehicles currently assigned.")
-    except Exception as e:
-        db.rollback()
-        st.error(f"Error loading driver console: {e}")
-    finally:
-        db.close()
+    if not driver_id:
+        st.warning("No driver identity found. Please log in again.")
+        return
+
+    render_driver_briefing(driver_id=driver_id, driver_name=user_email)
 
 
 # ==========================================

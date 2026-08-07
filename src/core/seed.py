@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 from src.core.database import AsyncSessionLocal, sync_engine, Base
 from src.core.models import User, Vehicle, Load
 from src.core.security import get_password_hash
@@ -50,7 +51,12 @@ async def seed_database():
                 assigned_driver_id=driver1.id,
                 assigned_vehicle_id=truck1.id,
                 pickup_ref="PU-1001",
-                delivery_ref="DEL-2002"
+                delivery_ref="DEL-2002",
+                pickup_address="1234 Citrus Ave, Fresno, CA",
+                delivery_address="899 Market St, San Francisco, CA",
+                target_pickup_at=datetime.now(timezone.utc) + timedelta(hours=2),
+                target_delivery_at=datetime.now(timezone.utc) + timedelta(hours=12),
+                dispatcher_notes="Reefer must stay at 34F the whole run. Call dispatch on arrival."
             )
             db.add(load1)
             await db.commit()
