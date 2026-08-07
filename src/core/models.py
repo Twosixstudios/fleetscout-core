@@ -132,3 +132,33 @@ class RepairReport(Base):
 
     # Task DS-4.3 approved categories
     REPAIR_CATEGORIES = ("Brakes", "Tires", "Lights", "Engine Light", "Trailer")
+
+
+class DutyLog(Base):
+    """Driver hours-of-service duty entry for the reset planner (Task DS-4.4).
+
+    Logs a duty-state start. When a driver goes 'Off Duty' or 'Sleeper Berth',
+    the 10-hour availability return countdown begins (target_available_at).
+    """
+
+    __tablename__ = "duty_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    driver_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    duty_state = Column(String, nullable=False)
+    gps_lat = Column(Float, nullable=True)
+    gps_lng = Column(Float, nullable=True)
+    off_duty_started_at = Column(DateTime, nullable=True)
+    target_available_at = Column(DateTime, nullable=True)
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    # ORM relationship
+    driver = relationship("User")
+
+    # Task DS-4.4 approved duty states
+    DUTY_STATES = ("Driving", "On Duty (not driving)", "Off Duty", "Sleeper Berth")
+
+    # Hours of Service 10-hour rest rule
+    REST_HOURS = 10

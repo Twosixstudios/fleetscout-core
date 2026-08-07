@@ -11,6 +11,7 @@ from src.ui.maintenance_hub import render_maintenance_hub
 from src.ui.driver_briefing import render_driver_briefing
 from src.ui.status_toggles import render_status_toggles
 from src.ui.repair_form import render_repair_form
+from src.ui.driver_reset_planner import render_driver_reset_planner
 
 # Set page config
 st.set_page_config(
@@ -276,6 +277,7 @@ def driver_console():
     render_driver_briefing(driver_id=driver_id, driver_name=user_email)
     render_status_toggles(driver_id=driver_id, driver_name=user_email)
     render_repair_form(driver_id=driver_id, driver_name=user_email)
+    render_driver_reset_planner(driver_id=driver_id, driver_name=user_email)
 
 
 # ==========================================

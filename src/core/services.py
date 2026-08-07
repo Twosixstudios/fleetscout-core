@@ -1,6 +1,15 @@
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.core.models import Vehicle, OdometerLog, Load, LoadStatusLog, RepairReport
+from src.core.models import (
+    Vehicle,
+    OdometerLog,
+    Load,
+    LoadStatusLog,
+    RepairReport,
+    DutyLog,
+)
 
 
 def update_vehicle_odometer(
@@ -177,4 +186,105 @@ async def get_driver_briefing(session: AsyncSession, driver_id: int):
         .where(Load.assigned_driver_id == driver_id)
         .order_by(Load.created_at.desc())
     )
+    return (await session.execute(stmt)).scalars().all()
+
+
+async def log_duty_start(
+    session: AsyncSession,
+    driver_id: int,
+    duty_state: str,
+    gps_lat: float = None,
+    gps_lng: float = None,
+) -> DutyLog:
+    """Atomically logs a driver duty-state start (Task DS-4.4).
+
+    When the state is 'Off Duty' or 'Sleeper Berth', the 10-hour availability
+    return countdown begins and target_available_at is set accordingly.
+    """
+    if duty_state not in DutyLog.DUTY_STATES:
+        raise ValueError(
+            f"Invalid duty state '{duty_state}'. Choose one of {DutyLog.DUTY_STATES}."
+        )
+
+    now = datetime.now(timezone.utc)
+    rests = {"Off Duty", "Sleeper Berth"}
+    off_duty_started_at = now if duty_state in rests else None
+    target_available_at = (
+        now + timedelta(hours=DutyLog.REST_HOURS) if duty_state in rests else None
+    )
+
+    log_entry = DutyLog(
+        driver_id=driver_id,
+        duty_state=duty_state,
+        gps_lat=gps_lat,
+        gps_lng=gps_lng,
+        off_duty_started_at=off_duty_started_at,
+        target_available_at=target_available_at,
+    )
+    session.add(log_entry)
+    await session.commit()
+    await session.refresh(log_entry)
+    return log_entry
+
+
+async def get_latest_duty_log(session: AsyncSession, driver_id: int) -> DutyLog:
+    """Returns the most recent duty log for a driver, or None."""
+    from sqlalchemy import select
+
+    stmt = (
+        select(DutyLog)
+        .where(DutyLog.driver_id == driver_id)
+        .order_by(DutyLog.created_at.desc())
+        .limit(1)
+    )
+    result = await session.execute(stmt)
+    return result.scalars().first()
+
+
+async def get_duty_summary(session: AsyncSession, driver_id: int):
+    """Returns a dict summarizing the driver's 10-hour availability countdown.
+
+    Includes the latest duty log, the off-duty start time, the availability
+    return time, and the seconds remaining until available (0 if already available).
+    """
+    latest = await get_latest_duty_log(session, driver_id)
+    summary = {
+        "latest_log": latest,
+        "off_duty_started_at": None,
+        "target_available_at": None,
+        "seconds_remaining": None,
+        "is_resting": False,
+    }
+    if latest is None:
+        return summary
+
+    if latest.target_available_at is None:
+        return summary
+
+    now = datetime.now(timezone.utc)
+    target = latest.target_available_at
+    if target.tzinfo is None:
+        target = target.replace(tzinfo=timezone.utc)
+    seconds_remaining = max(int((target - now).total_seconds()), 0)
+
+    summary.update(
+        {
+            "off_duty_started_at": latest.off_duty_started_at,
+            "target_available_at": target,
+            "seconds_remaining": seconds_remaining,
+            "is_resting": seconds_remaining > 0,
+        }
+    )
+    return summary
+
+
+async def get_recent_duty_logs(
+    session: AsyncSession, driver_id: int = None, limit: int = 20
+):
+    """Returns recent duty logs, optionally filtered to one driver."""
+    from sqlalchemy import select
+
+    stmt = select(DutyLog).order_by(DutyLog.created_at.desc()).limit(limit)
+    if driver_id is not None:
+        stmt = stmt.where(DutyLog.driver_id == driver_id)
     return (await session.execute(stmt)).scalars().all()
