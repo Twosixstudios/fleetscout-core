@@ -7,17 +7,17 @@ kanban-plugin: list
 ## 🚚 FleetScout - Architecture & Rules
 
 - [ ] **Agent Instructions & Guidelines**
-	- Always check `.clinerules/00-global.md` and `CLAUDE.md` before starting work on a task.
+	- Always check `CLAUDE.md`, `copilot/pending_task.md`, and `copilot/build_result.md` before starting work on a task.
 	- Only work on tasks marked as `[ ]` under the Active Phase.
 	- Once a task is completed and verified, update its status to `[x]` and commit `Tasks.md` alongside code changes.
 
 
 ## 🎯 Current Status
 
-- [ ] **Active Phase: Phase 4 - Mobile Driver Suite**
+- [ ] **Active Phase: Phase 5 - Modular Plugins, Hardening & Deploy (Completed)**
 	
 	**Target Deliverable:**
-	Mobile-optimized driver tools: quick-ref load briefing, one-tap status toggles, structured repair reporting, and HOS/duty clock planning.
+	RateCon parsing hooks, OSRM/HOS routing plugins, safety interceptor hard lockout, mobile viewport polish, and Streamlit driver UI fixes.
 	
 	**Overall Progress:** 4 / 4 Tasks Completed (100%)
 

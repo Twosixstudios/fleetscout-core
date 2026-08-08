@@ -1,28 +1,26 @@
-# Task ID: HD-5.1: FreightSlip & LaneSight Modular Plugin Hooks
+# Task ID: DOCS-5.5: Sanitize Agent Rules & Sync Tasks.md Header Status
 
 ## Objective
-Implement a modular plugin architecture in FleetScout core to dynamically load and execute `freightslip` (RateCon parser) and `lanesight` (OSRM/HOS calculator) adapters.
+Clean up `Tasks.md` by removing legacy `.clinerules` references, updating agent instructions to reflect the active OpenCode pipeline, and bringing the `Current Status` header up to date with completed Phase 5 milestones.
 
 ## Target Files
-- `src/plugins/base.py` (Base plugin interface)
-- `src/plugins/freightslip_adapter.py` (RateCon parser adapter)
-- `src/plugins/lanesight_adapter.py` (OSRM/HOS calculator adapter)
-- `src/api/plugins.py` (Plugin registry)
-- `src/core/services.py` (Service integration points)
-- `tests/test_plugins.py` (Unit & integration test suite)
 - `Tasks.md`
 
 ## Step-by-Step Requirements
-1. **Define Abstract Plugin Base:** Create `PluginInterface` in `src/plugins/base.py` requiring `execute(data: dict) -> dict` and `validate() -> bool` methods.
-2. **Implement Adapters:**
-   - Create `FreightSlipAdapter` in `src/plugins/freightslip_adapter.py` to parse raw PDF/text input into structured load parameters (commodity, weight, pickup/delivery refs).
-   - Create `LaneSightAdapter` in `src/plugins/lanesight_adapter.py` to calculate route distance, estimated transit time, and HOS duty impact from waypoints.
-3. **Build Plugin Registry:** Implement a dynamic registry in `src/api/plugins.py` allowing plugins to be registered, retrieved, and safely executed by carrier configuration.
-4. **Service Integration:** Wire plugin hooks into `src/core/services.py`. Ensure all plugin executions are isolated in `try/except` wrappers so plugin failure never crashes core dispatch or rolls back database transactions.
-5. **Mark Task Completed:** Update `Tasks.md` to flip Task 5.1 from `[ ]` to `[x]`.
+1. **Purge Legacy Rules References:**
+   - In `Tasks.md`, update the **Agent Instructions & Guidelines** section.
+   - Remove references to `.clinerules/00-global.md`.
+   - Update instructions to: *"Always check `CLAUDE.md`, `copilot/pending_task.md`, and `copilot/build_result.md` before starting work."*
+
+2. **Sync Current Status Header:**
+   - Update **Active Phase** to: `Phase 5 - Modular Plugins, Hardening & Deploy (Completed)`
+   - Update **Target Deliverable** to summarize Phase 5: `RateCon parsing hooks, OSRM/HOS routing plugins, safety interceptor hard lockout, mobile viewport polish, and Streamlit driver UI fixes.`
+   - Update **Overall Progress** for Phase 5 to: `4 / 4 Tasks Completed (100%)`
+
+3. **Audit Task Checkboxes:**
+   - Verify that all tasks from Phase 1 through Phase 5 (Tasks 1.1–1.4, 2.1–2.3, 3.1–3.4, 4.1–4.4, 5.1–5.4) are marked as completed `[x]`.
 
 ## Guardrails & Verification
-- Plugin execution errors must be caught and logged gracefully without raising `SafetyViolationError` or rolling back DB transactions.
-- Write unit tests in `tests/test_plugins.py` covering adapter execution, registry lookup, and error isolation.
-- Run `python -m pytest` to verify 100% test suite pass rate.
-- Run `git add . && git commit -m "feat(phase5): complete Task HD-5.1 - FreightSlip & LaneSight Modular Plugin Hooks" && git push origin main` upon successful verification.
+- Ensure no code files outside `Tasks.md` are modified.
+- Verify markdown rendering remains clean and scannable.
+- Run `git add . && git commit -m "docs: sanitize agent rules and update Tasks.md status header to Phase 5 complete" && git push origin main` upon successful verification.
