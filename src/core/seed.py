@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 from src.core.database import AsyncSessionLocal, sync_engine, Base
-from src.core.models import User, Vehicle, Load, LoadStatusLog
+from src.core.models import User, Vehicle, Load, LoadStatusLog, Carrier
 from src.core.security import get_password_hash
 
 def reset_database():
@@ -15,9 +15,25 @@ async def seed_database():
     
     async with AsyncSessionLocal() as db:
         try:
-            # 2. Seed Users FIRST so their IDs exist
-            dispatcher = User(
+            # 2. Seed the baseline Carrier FIRST so users/loads can link to it.
+            carrier = Carrier(
                 id=1,
+                name="Two-Six Logistics LLC",
+                dot_number="USDOT-3829104",
+            )
+            db.add(carrier)
+
+            # 3. Seed Users NEXT so their IDs exist
+            owner = User(
+                id=1,
+                email="owner@fleetscout.com",
+                username="owner",
+                hashed_password=get_password_hash("password123"),
+                role="Owner",
+                carrier_id=1,
+            )
+            dispatcher = User(
+                id=2,
                 email="dispatcher@fleetscout.com",
                 username="dispatcher1",
                 hashed_password=get_password_hash("password123"),
@@ -25,7 +41,7 @@ async def seed_database():
                 carrier_id=1
             )
             driver1 = User(
-                id=2,
+                id=3,
                 email="driver@fleetscout.com",
                 username="driver",
                 hashed_password=get_password_hash("password123"),
@@ -33,14 +49,14 @@ async def seed_database():
                 carrier_id=1
             )
             driver2 = User(
-                id=3,
+                id=4,
                 email="driver@twosix.com",
                 username="driver2",
                 hashed_password=get_password_hash("password123"),
                 role="Driver",
                 carrier_id=1
             )
-            db.add_all([dispatcher, driver1, driver2])
+            db.add_all([owner, dispatcher, driver1, driver2])
             await db.commit()
 
             # 3. Seed Vehicles (two Active for the two drivers, one Grounded)

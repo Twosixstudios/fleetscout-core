@@ -14,12 +14,12 @@ kanban-plugin: list
 
 ## 🎯 Current Status
 
-- [x] **Active Phase: Phase 5 - Modular Plugins, Hardening & Deploy**
+- [x] **Active Phase: Phase 6 - Owner Portal, Branding & Demo Defaults**
 	
 	**Target Deliverable:**
-	RateCon parsing hooks, OSRM/HOS routing plugins, safety interceptor hard lockout, mobile viewport polish, and Streamlit driver UI fixes.
+	Owner role account, dynamic white-label carrier branding, Owner Portal UI with form placeholders and demo fallbacks, and team roster.
 	
-	**Overall Progress:** 7 / 7 Tasks Completed (100%)
+	**Overall Progress:** 1 / 1 Tasks Completed (100%)
 
 
 ## 🔒 Phase 1: Future-Proof Schema & Database Foundation
@@ -113,6 +113,16 @@ kanban-plugin: list
 - [x] **Task 5.9: Suppress Custom Component Warning Banners & Clean GPS Fallback (`FIX-5.9`)** `#priority/high`
 	- **Description:** Guard `gps_component` path declarations so the inline HTML/JS fallback is used when static frontend assets are unavailable on Streamlit Cloud, and suppress the yellow component load warning banner by returning `None` on any component exception.
 	- **Prerequisites:** Task 5.8
+	- **Verification:** `venv/bin/python -m pytest` (60 passed)
+
+
+## 🏠 Phase 6: Owner Portal, Branding & Demo Defaults
+
+	**Overall Progress:** 1 / 1 Tasks Completed (100%)
+
+- [x] **Task 6.1: Owner Portal, Dynamic Branding & Default Field Placeholders (`TASK-6.1`)** `#priority/high`
+	- **Description:** Establish the Owner role, auto-seed `owner@fleetscout.com` with realistic carrier defaults, build the Owner Portal UI (Carrier Settings form with greyed-out placeholders, pre-populated values, save -> live header rerun, Team Roster), and implement dynamic white-label headers.
+	- **Prerequisites:** Task 5.9
 	- **Verification:** `venv/bin/python -m pytest` (60 passed)
 
 

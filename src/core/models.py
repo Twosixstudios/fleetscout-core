@@ -91,6 +91,24 @@ class LoadStatusLog(Base):
     load = relationship("Load", back_populates="status_logs")
 
 
+class Carrier(Base):
+    """Baseline carrier branding record (Task TASK-6.1).
+
+    Stores the white-label values rendered in the app header and pre-populated
+    into the Owner Portal carrier settings form. Falls back to the demo
+    defaults if no row exists yet.
+    """
+
+    __tablename__ = "carriers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, default="Two-Six Logistics LLC")
+    dot_number = Column(String, nullable=True)
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+
 class OdometerLog(Base):
     __tablename__ = "odometer_logs"
 

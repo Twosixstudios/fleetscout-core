@@ -1,25 +1,33 @@
-# Task ID: FIX-5.9: Suppress Custom Component Warning Banners & Clean GPS Fallback
+# Task ID: TASK-6.1: Owner Portal, Dynamic Branding & Default Field Placeholders [x] - COMPLETE
 
 ## Objective
-Clean up the custom GPS component rendering in `src/ui/gps_component.py` so that Streamlit Cloud does not render yellow component load warning banners when custom HTML/JS iframe assets are restricted.
+Establish the Owner role, auto-seed an Owner account (`owner@fleetscout.com`) with realistic carrier defaults, build the Owner Portal UI with input placeholders and demo fallback info, and implement dynamic white-label headers.
 
 ## Target Files
-- `src/ui/gps_component.py`
-- `tests/test_end_to_end.py`
+- `src/core/seed.py`
+- `app.py`
+- `src/ui/owner_portal.py` (New file)
 - `Tasks.md`
 
 ## Step-by-Step Requirements
-1. **Suppress Component Load Exceptions:**
-   - In `src/ui/gps_component.py`, wrap the call to `_gps_location()` in a defensive try/except block that catches all component load and rendering exceptions.
-   - If the custom iframe component fails or raises a Streamlit component error, gracefully suppress the yellow Streamlit warning banner and fall back to returning `None` (which correctly displays `� GPS: Location unavailable`).
+1. **Auto-Seed Owner & Demo Carrier:**
+   - Update `seed_database()` to include an Owner account (`owner@fleetscout.com`, Role: `Owner`, Password: `password123`).
+   - Ensure the baseline Carrier record has clean demo defaults: `name="Two-Six Logistics LLC"`, `dot_number="USDOT-3829104"`.
 
-2. **Verify Component Paths & Static Assets:**
-   - Ensure `gps_component` path declarations safely fall back to the inline HTML/JS implementation if the static `frontend/build` path is not present in cloud environments.
+2. **Dynamic White-Label Header Component:**
+   - Refactor headers in `app.py` so authenticated users see `� [Carrier Name] Terminal` (e.g. `� Two-Six Logistics LLC Terminal`) as the main title with `Powered by FleetScout | Two-Six Studios` in clean subtext.
 
-3. **Automated Verification:**
-   - Run `venv/bin/python -m pytest` to confirm all 59+ tests pass without breaking GPS status checks or driver forms.
+3. **Owner Portal UI & Form Placeholders (`src/ui/owner_portal.py`):**
+   - **Carrier Settings Form:**
+     * Include text inputs for Carrier Name & DOT Number with greyed-out placeholders (e.g., `placeholder="e.g. Two-Six Logistics LLC"`, `placeholder="e.g. USDOT 3829104"`).
+     * Pre-populate form values with current database records.
+     * Upon saving, update `Carrier` in SQLite and immediately trigger a Streamlit rerun so headers update live.
+   - **Team Roster:** Display all active Dispatchers and Drivers linked to the Carrier.
+
+4. **App Integration:**
+   - Add "Owner View" navigation in `app.py` accessible to users with the `Owner` role.
 
 ## Guardrails & Verification
-- Do not alter the core functionality of the repair reporting or HOS reset planner tools.
-- Ensure `venv/bin/python -m pytest` passes completely.
-- Run `git add . && git commit -m "fix(ui): suppress custom GPS component load warnings and ensure clean fallback UI" && git push origin main` upon successful verification.
+- Ensure forms never render completely blank; always fall back to baseline demo defaults.
+- Verify `venv/bin/python -m pytest` passes completely.
+- Run `git add . && git commit -m "feat(phase6): add Owner portal with dynamic branding, input placeholders, and demo carrier defaults" && git push origin main` upon successful completion.

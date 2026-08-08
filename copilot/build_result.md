@@ -1,34 +1,49 @@
 # 🤖 OpenCode Execution Report
-**Timestamp:** Fri Aug  7 23:55:00 PDT 2026
+**Timestamp:** Sat Aug  8 00:19 PDT 2026
 
-### Task: FIX-5.9 — Suppress Custom Component Warning Banners & Clean GPS Fallback
+### Task: TASK-6.1 — Owner Portal, Dynamic Branding & Default Field Placeholders
 
 ### 📁 Modified Files:
 ```text
-src/ui/gps_component.py
-tests/test_end_to_end.py
+src/core/models.py
+src/core/seed.py
+src/ui/owner_portal.py   (New)
+app.py
 Tasks.md
+CLAUDE.md
 copilot/pending_task.md
 ```
 
 ### 📜 Execution Logs:
 ```text
-✅ Guarded gps_component path declaration: `_gps_location` is only declared via
-   components.declare_component(path=...) when src/ui/gps_frontend/index.html
-   exists; otherwise it is `None` and the inline "Location unavailable"
-   fallback renders instead of a yellow warning banner.
+✅ Added Carrier model (id, name, dot_number) to src/core/models.py for
+   white-label carrier branding.
 
-✅ Wrapped both the declare_component call and the `_gps_location()` invocation
-   in defensive try/except blocks so component load/render exceptions are
-   suppressed and `gps_location()` returns `None` (never raises).
+✅ Auto-seeded Owner account (owner@fleetscout.com / Role: Owner /
+   carrier_id=1, bcrypt hash of password123) and baseline Carrier record
+   (name="Two-Six Logistics LLC", dot_number="USDOT-3829104") in
+   src/core/seed.py.
 
-✅ Added regression test test_gps_component_falls_back_on_load_failure in
-   tests/test_end_to_end.py covering: missing build (None component), raising
-   component, empty result, and valid {lat, lng} passthrough.
+✅ Built src/ui/owner_portal.py (new):
+    - Carrier Settings form with greyed-out placeholders ("e.g. Two-Six
+      Logistics LLC" / "e.g. USDOT 3829104"), pre-populated from the DB,
+      and a save() that updates the Carrier row then triggers st.rerun()
+      so the white-label header updates live.
+    - Team Roster rendering all active Dispatchers and Drivers linked to
+      the carrier.
 
-✅ Updated Tasks.md: added Task 5.9 (FIX-5.9) as complete and bumped Phase 5
-   progress to 7 / 7 Tasks Completed (100%).
+✅ Refactored app.py headers to dynamic white-label output:
+   `🚚 [Carrier Name] Terminal` with a clean
+   "Powered by FleetScout | Two-Six Studios" caption. get_carrier_name()
+   falls back to demo defaults when no Carrier row exists, and the
+   Owner-only "Owner View" navigation renders owner_portal().
 
-✅ Tests: venv/bin/python -m pytest -> 60 passed (1 warning)
-1 (FastAPI/httpx deprecation only; no component or GPS failures).
+✅ Forms/headers never render blank — baseline demo defaults preserved.
+
+✅ Tests: venv/bin/python -m pytest -> 60 passed (1 warning: httpx
+   deprecation only). Verified `python -m src.core.seed` resets and seeds
+   the Carrier + Owner account correctly.
+
+✅ Tasks.md: added Phase 6 (Task 6.1 complete, 1/1 = 100%) and advanced the
+   Active Phase in both Tasks.md and CLAUDE.md.
 ```

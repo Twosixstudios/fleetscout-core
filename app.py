@@ -2,7 +2,7 @@ import streamlit as st
 from sqlalchemy import select
 from zoneinfo import ZoneInfo
 from src.core.database import SessionLocal
-from src.core.models import Vehicle, User, Load, OdometerLog
+from src.core.models import Vehicle, User, Load, OdometerLog, Carrier
 from src.core.security import create_access_token, verify_password
 from src.core.services import update_vehicle_odometer
 from src.ui.styles import inject_styles
@@ -13,6 +13,7 @@ from src.ui.driver_briefing import render_driver_briefing
 from src.ui.status_toggles import render_status_toggles
 from src.ui.repair_form import render_repair_form
 from src.ui.driver_reset_planner import render_driver_reset_planner
+from src.ui.owner_portal import render_owner_portal
 
 # Set page config
 st.set_page_config(
@@ -29,6 +30,25 @@ def format_timestamp(ts):
         ts = ts.replace(tzinfo=ZoneInfo("UTC"))
     pacific_time = ts.astimezone(ZoneInfo("America/Los_Angeles"))
     return pacific_time.strftime("%m/%d/%Y %I:%M %p")
+
+
+def get_carrier_name():
+    """Returns the baseline carrier name for the white-label header.
+
+    TASK-6.1: Always falls back to the demo default so the header never
+    renders empty even if no Carrier row exists yet.
+    """
+    try:
+        db = SessionLocal()
+        try:
+            carrier = db.query(Carrier).filter_by(id=1).first()
+            if carrier and carrier.name:
+                return carrier.name
+        finally:
+            db.close()
+    except Exception:
+        pass
+    return "Two-Six Logistics LLC"
 
 
 def format_vehicle_option(vehicle):
@@ -285,8 +305,9 @@ def driver_console():
 # MAIN ROUTING & HAT-SWITCHER (AR-2.2 & AR-2.3)
 # ==========================================
 def main():
-    st.title("Fleet Scout Terminal")
-    st.markdown("### Two Six Studios")
+    # TASK-6.1: Dynamic white-label header from the baseline Carrier record.
+    st.title(f"🚚 {get_carrier_name()} Terminal")
+    st.markdown("##### _Powered by FleetScout | Two-Six Studios_")
 
     # HD-5.3: Mobile viewport polish (media-query scoped; desktop untouched)
     inject_styles()
@@ -336,7 +357,11 @@ def main():
 
     # AR-2.2: Routing Logic based on Active View
     if active_view == "Dispatch View":
-        menu = st.sidebar.selectbox("Navigation", ["Active Fleet", "Odometer Updates", "Active Loads", "Dispatch & Yard Board", "Load Watch Board", "Maintenance & Override Hub"])
+        menu_options = ["Active Fleet", "Odometer Updates", "Active Loads", "Dispatch & Yard Board", "Load Watch Board", "Maintenance & Override Hub"]
+        # TASK-6.1: Owner-only "Owner View" portal for carrier settings + team roster.
+        if user_role == "Owner":
+            menu_options.append("Owner View")
+        menu = st.sidebar.selectbox("Navigation", menu_options)
         if menu == "Active Fleet":
             active_fleet()
         elif menu == "Odometer Updates":
@@ -349,6 +374,8 @@ def main():
             render_load_watch_board()
         elif menu == "Maintenance & Override Hub":
             render_maintenance_hub(actor_role=user_role)
+        elif menu == "Owner View":
+            render_owner_portal(carrier_id=1)
 
     elif active_view == "Driver View":
         menu = st.sidebar.selectbox("Navigation", ["Driver Console", "Log Odometer"])
