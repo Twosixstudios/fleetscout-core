@@ -19,7 +19,7 @@ kanban-plugin: list
 	**Target Deliverable:**
 	RateCon parsing hooks, OSRM/HOS routing plugins, safety interceptor hard lockout, mobile viewport polish, and Streamlit driver UI fixes.
 	
-	**Overall Progress:** 6 / 6 Tasks Completed (100%)
+	**Overall Progress:** 7 / 7 Tasks Completed (100%)
 
 
 ## 🔒 Phase 1: Future-Proof Schema & Database Foundation
@@ -85,7 +85,7 @@ kanban-plugin: list
 
 ## 📡 Phase 5: Modular Plugins, Hardening & Deploy
 
-	**Overall Progress:** 6 / 6 Tasks Completed (100%)
+	**Overall Progress:** 7 / 7 Tasks Completed (100%)
 
 - [x] **Task 5.1: FreightSlip & LaneSight Modular Plugin Hooks (`HD-5.1`)** `#priority/high`
 	- **Description:** Import and execute `freightslip` (RateCon PDF parser function) and `lanesight` (OSRM route & HOS calculation functions) as modular plugin packages inside FleetScout core.
@@ -110,6 +110,10 @@ kanban-plugin: list
 	- **Description:** Eager-load `Load.status_logs` in driver briefing queries (`selectinload`) and add a safe `getattr` fallback in `status_toggles.py` so `status_logs` never trigger lazy loads on detached instances.
 	- **Prerequisites:** Task 5.7
 	- **Verification:** `venv/bin/python -m pytest` (59 passed)
+- [x] **Task 5.9: Suppress Custom Component Warning Banners & Clean GPS Fallback (`FIX-5.9`)** `#priority/high`
+	- **Description:** Guard `gps_component` path declarations so the inline HTML/JS fallback is used when static frontend assets are unavailable on Streamlit Cloud, and suppress the yellow component load warning banner by returning `None` on any component exception.
+	- **Prerequisites:** Task 5.8
+	- **Verification:** `venv/bin/python -m pytest` (60 passed)
 
 
 

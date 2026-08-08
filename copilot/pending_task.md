@@ -1,23 +1,25 @@
-# Task ID: FIX-5.8: Resolve DetachedInstanceError in Status Toggle Logs
+# Task ID: FIX-5.9: Suppress Custom Component Warning Banners & Clean GPS Fallback
 
 ## Objective
-Fix `sqlalchemy.orm.exc.DetachedInstanceError` when accessing `load.status_logs` in `src/ui/status_toggles.py` by eager-loading `Load.status_logs` during active load briefing queries in `src/core/services.py`.
+Clean up the custom GPS component rendering in `src/ui/gps_component.py` so that Streamlit Cloud does not render yellow component load warning banners when custom HTML/JS iframe assets are restricted.
 
 ## Target Files
-- `src/core/services.py`
-- `src/ui/status_toggles.py`
+- `src/ui/gps_component.py`
 - `tests/test_end_to_end.py`
+- `Tasks.md`
 
 ## Step-by-Step Requirements
-1. **Eager Load Relationship in Service Layer:**
-   - In `src/core/services.py` (specifically functions querying active driver loads like `get_driver_load_briefing`), add `selectinload(Load.status_logs)` to the SQLAlchemy `select` statement options.
-   - Import `selectinload` from `sqlalchemy.orm`.
-2. **Safe Fallback in Status Toggles UI:**
-   - Ensure `src/ui/status_toggles.py` safely checks `getattr(load, 'status_logs', [])` or extracts the latest timestamp without triggering un-sessioned ORM lazy loads.
+1. **Suppress Component Load Exceptions:**
+   - In `src/ui/gps_component.py`, wrap the call to `_gps_location()` in a defensive try/except block that catches all component load and rendering exceptions.
+   - If the custom iframe component fails or raises a Streamlit component error, gracefully suppress the yellow Streamlit warning banner and fall back to returning `None` (which correctly displays `� GPS: Location unavailable`).
+
+2. **Verify Component Paths & Static Assets:**
+   - Ensure `gps_component` path declarations safely fall back to the inline HTML/JS implementation if the static `frontend/build` path is not present in cloud environments.
+
 3. **Automated Verification:**
-   - Run `venv/bin/python -m pytest` to confirm all 58+ tests pass and no detached ORM instance exceptions occur.
+   - Run `venv/bin/python -m pytest` to confirm all 59+ tests pass without breaking GPS status checks or driver forms.
 
 ## Guardrails & Verification
-- Do not modify database models or schema definitions.
-- Ensure all async database operations continue to execute cleanly inside `AsyncSession`.
-- Run `git add . && git commit -m "fix(ui): eager load status_logs to resolve DetachedInstanceError in status toggles" && git push origin main` upon successful verification.
+- Do not alter the core functionality of the repair reporting or HOS reset planner tools.
+- Ensure `venv/bin/python -m pytest` passes completely.
+- Run `git add . && git commit -m "fix(ui): suppress custom GPS component load warnings and ensure clean fallback UI" && git push origin main` upon successful verification.

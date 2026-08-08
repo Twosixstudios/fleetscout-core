@@ -205,3 +205,27 @@ async def test_driver_briefing_eager_loads_status_logs():
 
     assert len(late_labels[0]) >= 1
     assert late_labels[0][0].status == "at_shipper"
+
+
+def test_gps_component_falls_back_on_load_failure(monkeypatch):
+    """FIX-5.9: GPS component must never raise or render a warning banner when
+    the custom iframe fails or the static frontend build is unavailable."""
+    from src.ui import gps_component as gc
+
+    monkeypatch.setattr(gc, "_gps_location", None)
+    assert gc.gps_location(key="fallback_test") is None
+
+    def _raise(*args, **kwargs):
+        raise RuntimeError("simulated component load failure")
+
+    monkeypatch.setattr(gc, "_gps_location", _raise)
+    assert gc.gps_location(key="fallback_test") is None
+
+    monkeypatch.setattr(gc, "_gps_location", lambda *a, **k: None)
+    assert gc.gps_location(key="fallback_test") is None
+
+    monkeypatch.setattr(gc, "_gps_location", lambda *a, **k: {})
+    assert gc.gps_location(key="fallback_test") is None
+
+    monkeypatch.setattr(gc, "_gps_location", lambda *a, **k: {"lat": 33.9, "lng": -118.4})
+    assert gc.gps_location(key="fallback_test") == {"lat": 33.9, "lng": -118.4}
