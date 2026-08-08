@@ -414,18 +414,10 @@ def main():
     st.sidebar.markdown(f"Logged in as: **{user_email}**")
     st.sidebar.markdown(f"Assigned Role: **`{user_role}`**")
 
-    # AR-2.3: Owner Role Toggle (Hat-Switcher)
-    if user_role == "Owner":
-        st.sidebar.divider()
-        st.sidebar.markdown("### � Owner Hat-Switcher")
-        owner_view_choice = st.sidebar.radio(
-            "Select Viewport Mode:",
-            ["Dispatch View", "Driver View"],
-            index=0 if st.session_state.get("active_view") == "Dispatch View" else 1,
-        )
-        st.session_state["active_view"] = owner_view_choice
-
-    elif user_role == "Dispatcher":
+# AR-2.2/AR-2.3 routing: Owners and Dispatchers land in the Dispatch view;
+    # the sidebar hat-switcher was removed in favor of the Executive Dashboard
+    # (Owner View), so solo owner-operators use the >Driver Console view there.
+    if user_role in ("Owner", "Dispatcher"):
         st.session_state["active_view"] = "Dispatch View"
     else:
         st.session_state["active_view"] = "Driver View"
@@ -447,9 +439,10 @@ def main():
         # TASK-6.3: Recovery tools for Dispatcher + Owner roles.
         if user_role in ("Owner", "Dispatcher"):
             menu_options.append("Account Recovery")
-        # TASK-6.1: Owner-only "Owner View" portal for carrier settings + team roster.
+        # TASK-6.x: Owner-only Executive Dashboard — dispatch oversight,
+        # driver console, team access, and carrier settings in one pane.
         if user_role == "Owner":
-            menu_options.append("Owner View")
+            menu_options.append("Executive Dashboard")
         menu = st.sidebar.selectbox("Navigation", menu_options)
         if menu == "Active Fleet":
             active_fleet()
@@ -465,8 +458,10 @@ def main():
             render_maintenance_hub(actor_role=user_role)
         elif menu == "Account Recovery":
             render_dispatch_view(carrier_id=1)
-        elif menu == "Owner View":
-            render_owner_portal(carrier_id=1)
+        elif menu == "Executive Dashboard":
+            render_owner_portal(
+                carrier_id=1, actor_user_id=st.session_state.get("user_id")
+            )
 
     elif active_view == "Driver View":
         menu = st.sidebar.selectbox("Navigation", ["Driver Console", "Log Odometer"])

@@ -355,6 +355,70 @@ async def toggle_user_active_status(
     return target
 
 
+async def delete_or_deactivate_user(
+    db: AsyncSession,
+    target_user_id: int,
+    carrier_id: int,
+    actor_user_id: int = None,
+) -> dict:
+    """Permanently removes a team member while preserving historical trip logs.
+
+    The target must belong to the acting carrier's network (strict carrier_id
+    boundary). Two protective guardrails are enforced:
+
+    * Owner accounts are non-deletable — an avenue remains to own the carrier.
+    * An actor may never delete their own account.
+
+    Before the row is removed, every historical reference that still points at
+    the user — past loads they were dispatched on, repair reports they filed,
+    and duty logs they recorded — is quietly detached (FK column set to NULL)
+    so no orphan rows exist and the delete never violates FK constraints. The
+    active ''trip'' history is preserved: loads stay on the books, just marked
+    'Unassigned'.
+    """
+    from sqlalchemy import select
+
+    target = await _require_same_carrier(db, target_user_id, carrier_id)
+
+    if target.role == "Owner":
+        raise PermissionError(
+            "Owner accounts cannot be deleted from within FleetScout. "
+            "Keep at least one owner to administer the carrier."
+        )
+    if actor_user_id is not None and actor_user_id == target_user_id:
+        raise ValueError(
+            "You cannot delete your own account. Ask another owner to remove it."
+        )
+
+    removed = {
+        "id": target.id,
+        "email": target.email,
+        "username": target.username,
+        "role": target.role,
+    }
+
+    # Detach historical references FIRST so the delete never violates FK
+    # constraints and old loads/reports/duty logs survive with NULL driver.
+    for load in (
+        await db.execute(select(Load).where(Load.assigned_driver_id == target.id))
+    ).scalars():
+        load.assigned_driver_id = None
+    for report in (
+        await db.execute(
+            select(RepairReport).where(RepairReport.driver_id == target.id)
+        )
+    ).scalars():
+        report.driver_id = None
+    for duty in (
+        await db.execute(select(DutyLog).where(DutyLog.driver_id == target.id))
+    ).scalars():
+        duty.driver_id = None
+
+    await db.delete(target)
+    await db.commit()
+    return removed
+
+
 async def run_plugin_hook(
     plugin_name: str, data: dict, **kwargs
 ) -> dict:

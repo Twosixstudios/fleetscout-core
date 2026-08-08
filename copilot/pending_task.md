@@ -1,45 +1,40 @@
-# Task ID: TASK-6.3: Admin Controls, Dispatcher Recovery, & Email Onboarding Invitations
+# Task ID: TASK-6.3: Executive Owner Dashboard & Complete Account Controls
 
 ## Objective
-Build comprehensive account administration for Owners (Edit User, Password Overrides, Deactivation), password recovery tools for Dispatchers, and an Email Onboarding Invitation System so recruits can set up their accounts prior to Day 1.
+Replace the sidebar hat-switcher with an intuitive, tabbed Executive Owner Dashboard, add full user account deletion/deactivation controls, password overrides, and onboarding email invitations.
 
 ## Target Files
 - `src/ui/owner_portal.py`
-- `src/ui/dispatch_view.py`
-- `src/core/services.py`
-- `src/core/models.py`
 - `app.py`
+- `src/core/services.py`
 - `tests/test_end_to_end.py`
 - `Tasks.md`
 
 ## Step-by-Step Requirements
-1. **Invite Token Schema & Services (`src/core/models.py` & `src/core/services.py`):**
-   - Add `UserInvite` database model (or token table) storing: `email`, `role`, `carrier_id`, `token`, `status` (`Pending`/`Accepted`), and `expires_at`.
-   - Implement `create_onboarding_invite(db: AsyncSession, carrier_id: int, email: str, role: str)`:
-     * Generates a unique token and records the pending invite.
-     * Simulates/dispatches the onboarding email payload containing the registration link.
-   - Implement `accept_onboarding_invite(db: AsyncSession, token: str, username: str, password: str)`:
-     * Validates token, hashes password, creates active `User` bound to `carrier_id`, and marks invite as `Accepted`.
+1. **Executive Dashboard Redesign (`src/ui/owner_portal.py` & `app.py`):**
+   - Remove the clunky "Hat-Switcher" radio buttons from the sidebar.
+   - Restructure `Owner View` into an Executive Navigation bar/tab system:
+     * **📊 Fleet Command Center:** Real-time active loads, dispatch map, and vehicle statuses.
+     * **🚛 Driver Console View:** Direct view of driver mobile status, duty clock, and repair forms for solo owner-operators.
+     * **👥 Team & Access Management:** Unified team roster, user creation, account deletion, and onboarding invites.
+     * **⚙️ Carrier Settings:** White-label branding, carrier name, and DOT details.
 
-2. **Backend Admin & Reset Overrides (`src/core/services.py`):**
-   - Implement `admin_reset_password(db: AsyncSession, target_user_id: int, new_password: str, carrier_id: int)`.
-   - Implement `update_team_member(db: AsyncSession, target_user_id: int, username: str, email: str, role: str, carrier_id: int)`.
-   - Implement `toggle_user_active_status(db: AsyncSession, target_user_id: int, active_status: bool, carrier_id: int)` (prevents self-deactivation).
+2. **Full User Account Controls & Deactivation (`src/core/services.py`):**
+   - Implement `delete_or_deactivate_user(db: AsyncSession, target_user_id: int, carrier_id: int)`:
+     * Deactivates/removes the target user while maintaining database integrity for historical trip logs.
+     * Protects the Owner from deleting their own account.
+   - Add **Action Column** in the Team Roster table with:
+     * **🗑️ Delete / Remove:** Permanently revokes access.
+     * **🔑 Reset Password:** Direct password override modal.
+     * **✏️ Edit Details:** Update username or email.
 
-3. **Owner Portal & Dispatcher UI Upgrades (`src/ui/owner_portal.py` & `src/ui/dispatch_view.py`):**
-   - **Send Onboarding Invite Form:** Form to send email invitations to new hires with a "Pending Invitations" status list.
-   - **Interactive Team Roster Controls:** 
-     * **Edit Details:** Modal/expander to update user name, email, or role.
-     * **Reset Password:** Instant override form for Owners/Dispatchers to set a temporary password or generate a recovery PIN.
-     * **Deactivate / Reactivate Toggle:** One-click account access switch.
+3. **Email Onboarding Invite System:**
+   - Add a "Send Onboarding Invite" tab to issue invite tokens to new recruits before their Day 1 start.
 
-4. **Public Onboarding Redemption View in `app.py`:**
-   - Detect invite tokens via URL params (e.g. `?invite_token=XYZ`) or a "Redeem Invite" screen on the login page where recruits complete registration.
-
-5. **Automated Verification:**
-   - Add end-to-end tests covering invite generation, token redemption, user edits, password overrides, and account deactivation.
-   - Run `venv/bin/python -m pytest` to confirm all test suites pass green.
+4. **Automated Verification:**
+   - Add end-to-end tests for account deletion, tab navigation, and password overrides.
+   - Run `venv/bin/python -m pytest` to confirm all test suites pass cleanly.
 
 ## Guardrails & Verification
-- Strict `carrier_id` isolation: Owners and Dispatchers can only invite, edit, or reset users within their own carrier network.
-- Run `git add . && git commit -m "feat(admin): add employee email onboarding invites, admin edit controls, and dispatcher recovery tools" && git push origin main` upon successful completion.
+- Strict `carrier_id` boundary checks on all delete/edit actions.
+- Run `git add . && git commit -m "feat(owner): executive dashboard UI overhaul with user deletion and onboarding tools" && git push origin main` upon completion.

@@ -1,14 +1,12 @@
 # 🤖 OpenCode Execution Report
-**Timestamp:** Sat Aug  8 12:49 PDT 2026
+**Timestamp:** Sat Aug  8 14:30 PDT 2026
 
-### Task: TASK-6.3 — Admin Controls, Dispatcher Recovery & Email Onboarding Invitations
+### Task: TASK-6.4 — Executive Owner Dashboard & Complete Account Controls
 
 ### 📁 Modified Files:
 ```text
-src/core/models.py
 src/core/services.py
 src/ui/owner_portal.py
-src/ui/dispatch_view.py
 app.py
 tests/test_end_to_end.py
 Tasks.md
@@ -17,63 +15,60 @@ copilot/build_result.md
 
 ### 📜 Execution Logs:
 ```text
-✅ src/core/models.py — added the UserInvite onboarding model:
-    - New user_invites table storing email, role, carrier_id, unique token,
-      status (Pending/Accepted), expires_at, and created_at (UTC).
+✅ src/core/services.py — new delete_or_deactivate_user():
+    - db: AsyncSession; strict carrier_id isolation via _require_same_carrier().
+    - Guardrails: Owner-role accounts are non-deletable (PermissionError);
+      an actor may never delete their own account (actor_user_id, ValueError).
+    - Preserves historical integrity: Load.assigned_driver_id,
+      RepairReport.driver_id, and DutyLog.driver_id references are detached
+      (NULL) before the hard DELETE, so trip/report/duty history stays intact
+      and FK constraints are never violated.
+    - Double-delete of an already-removed id resolves as a clean not-found.
 
-✅ src/core/services.py — added five Task TASK-6.3 services, all AsyncSession,
-   native bcrypt, with strict carrier_id isolation:
-    - create_onboarding_invite(): role validation, duplicate pending-invite +
-      existing-account guards, secrets.token_urlsafe(32) token, 7-day TTL,
-      and a simulated email payload containing the /?invite_token= link.
-    - accept_onboarding_invite(): validates token / expiry (timezone-safe) /
-      Accepted-state, hashes the recruit's password, creates an ACTIVE User
-      bound to the invite's carrier_id, and marks the invite Accepted so a
-      token can never be redeemed twice.
-    - list_onboarding_invites(): Pending/Accepted invite history per carrier.
-    - admin_reset_password(): instant password override, carrier-scoped.
-    - update_team_member(): edit username/email/role with duplicate guards.
-    - toggle_user_active_status(): one-click deactivate/reactivate, with
-      self-deactivation blocked via actor_user_id.
+✅ src/ui/owner_portal.py — Executive Dashboard (blocked into st.tabs):
+    - 📊 Fleet Command Center: live metrics (Active Loads / Fleet Vehicles /
+      Road-Ready / Grounded), simulated dispatch map of active loads with
+      driver + truck, active Load Board dataframe, and Vehicle Statuses.
+    - 🚛 Driver Console View: solo owner-operator view reusing driver briefing,
+      one-tap status toggles, structured repair form, and HOS duty clock.
+    - 👥 Team & Access Management: Provision New Team Member, Send Onboarding
+      Invite + Pending Invitations, Team Roster WITH an Action Column, and the
+      per-member Member Controls (Edit Details, Reset Password, Deactivate /
+      Reactivate, and a two-step 🗑️ Delete/Remove confirmation).
+    - ⚙️ Carrier Settings: unchanged white-label branding form + live header.
+    - actor_user_id threaded through delete/deactivate to enforce guardrails.
 
-✅ src/ui/owner_portal.py — added TASK-6.3 admin UI:
-  - "Send Onboarding Invite" form (email + role) with a collapsible
-    "Pending Invitations" status list.
-  - Interactive Team Roster controls per member: Edit Details expander
-    (username/email/role), Reset Password override form, and a one-click
-    Deactivate / Reactivate toggle. Roster now shows active AND deactivated
-    members.
+✅ app.py — hat-switcher REMOVED:
+    - Deleted the sidebar "Hat-Switcher" radio for Owners.
+    - Owners now route straight into the Dispatch view and open the tabbed
+      "Executive Dashboard" menu item (calls render_owner_portal as the routed
+      pane) with the real logged-in user's session_state user_id as
+      actor_user_id, so self-delete/self-deactivate is protected.
 
-✅ src/ui/dispatch_view.py — NEW Dispatcher recovery tool (Account Recovery):
-  - Select a carrier team member, then either "Generate Recovery PIN"
-    (secrets) or "Set Temporary Password", applied via admin_reset_password()
-    with carrier isolation.
+✅ tests/test_end_to_end.py — 4 new automated tests:
+    - test_owner_deletes_account_preserving_historical_trip_logs: full delete
+      flow; user row removed while Load + RepairReport + DutyLog survive with
+      NULL driver references.
+    - test_deletion_guards_owner_role_self_and_cross_carrier: foreign-carrier
+      PermissionError, Owner-role PermissionError, self-deletion ValueError,
+      and clean not-found on second delete.
+    - test_password_override_binds_new_credential_and_drops_old: new password
+      verifies, old password is invalidated.
+    - test_executive_dashboard_tab_navigation_renders_all_four: streamlit
+      AppTest verifies all four Executive tabs render without exceptions.
 
-✅ app.py — added the public Onboarding Redemption screen on the login route:
-   Reads ?invite_token= (st.query_params / session), renders a "Redeem Invite"
-   form (username + password), calls accept_onboarding_invite(), and signs
-   the recruit into their new account. "Account Recovery" menu now appears for
-   Dispatcher + Owner roles in the Dispatch View.
+✅ Tasks.md — added [x] Task 6.5 (TASK-6.4) under Phase 6, updated Target
+   Deliverable + progress header to "5 / 5 (100%)".
 
-✅ tests/test_end_to_end.py — added 7 async end-to-end tests:
-   invite generation + duplicate-pending guard, token redemption + active
-   user + double-redeem block, unknown/expired token rejection,
-   admin password override, cross-carrier carrier_id isolation (PasswordError
-   on foreign users), edit-member collisions, and deactivate/reactivate plus
-   self-deactivation block.
-
-✅ Tasks.md — marked Off Phase 6 deliverable; added [x] Task 6.4 (TASK-6.3),
-   updated Target Deliverable + progress header to "4 / 4 (100%)".
-
-✅ Tests: venv/bin/python -m pytest -> 71 passed (1 httpx deprecation warning).
-   Import checks for src.core.services, src.ui.owner_portal, src.ui.dispatch_view,
-   app.py pass cleanly.
+✅ Tests: venv/bin/python -m pytest -> 75 passed (1 httpx deprecation warning).
 ```
 
 ### 🔢 Verification
-- `venv/bin/python -m pytest` → **71 passed** (1 warning only)
+- `venv/bin/python -m pytest` → **75 passed** (1 warning only)
 
 ### 🚀 Guardrail Confirmation
-- Invite/edit/reset/deactivate strictly carrier-scoped via `_require_same_carrier` (tested with cross-carrier PermissionError).
-- Native `bcrypt` only (`get_password_hash`), all DB ops via `AsyncSession`.
+- Strict `carrier_id` boundary checks on ALL delete/edit/reset actions (cross-carrier PermissionError tested).
+- Owner role and self-account are protected from deletion; historical trip/report/duty data preserved via FK detachment.
+- Native `bcrypt` only (`get_password_hash`); all DB ops via `AsyncSession`.
 - Git commit + `git push origin main` requested per `Tasks.md` guardrails.
+```

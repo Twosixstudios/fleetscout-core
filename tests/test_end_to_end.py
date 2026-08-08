@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 
 from src.core.database import Base, sync_engine, AsyncSessionLocal
 from src.core.exceptions import SafetyViolationError
-from src.core.models import RepairReport, User, UserInvite, Vehicle
+from src.core.models import DutyLog, Load, RepairReport, User, UserInvite, Vehicle
 from src.core.seed import ensure_database_seeded
 from src.core.services import (
     UNGROUND_AUTHORIZED_ROLES,
@@ -14,15 +14,17 @@ from src.core.services import (
     create_team_member,
     create_dispatched_load,
     create_repair_report,
+    delete_or_deactivate_user,
     get_driver_briefing,
     ground_vehicle,
     list_onboarding_invites,
+    log_duty_start,
     toggle_user_active_status,
     unground_vehicle,
     update_load_status,
     update_team_member,
 )
-from src.core.security import verify_password
+from src.core.security import get_password_hash, verify_password
 
 
 @pytest.mark.asyncio
@@ -661,3 +663,220 @@ async def test_toggle_user_active_status_deactivates_and_reactivates():
                 carrier_id=1,
                 actor_user_id=member_id,
             )
+
+
+# ==========================================
+# TASK-6.4 (Executive Owner Dashboard) — account deletion,
+# password override, and Executive tab navigation
+# ==========================================
+@pytest.mark.asyncio
+async def test_owner_deletes_account_preserving_historical_trip_logs():
+    """Executive Owner delete: remove the member from the roster while
+    historical loads, repair reports, and duty logs survive with a detached
+    (NULL) driver reference — DB integrity never violated."""
+    async with AsyncSessionLocal() as session:
+        driver = User(
+            email="delete-vision@fleetscout.com",
+            username="deleteme",
+            hashed_password="x",
+            role="Driver",
+            carrier_id=1,
+        )
+        vehicle = Vehicle(unit_number="E2E-DEL-01", status="Active", carrier_id=1)
+        session.add_all([driver, vehicle])
+        await session.commit()
+        await session.refresh(driver)
+        await session.refresh(vehicle)
+        driver_id = driver.id
+
+        vehicle_id = vehicle.id
+        load = await create_dispatched_load(
+            session,
+            load_number="E2E-DEL-LOAD-1",
+            load_weight=15000,
+            commodity="Deletion Cargo",
+            pickup_ref="PU-DEL",
+            delivery_ref="DEL-DEL",
+            assigned_vehicle_id=vehicle_id,
+            assigned_driver_id=driver_id,
+        )
+        await create_repair_report(
+            session,
+            driver_id=driver_id,
+            category="Brakes",
+            description="Historical report filed pre-removal.",
+            vehicle_id=vehicle_id,
+            load_id=load.id,
+        )
+        await log_duty_start(session, driver_id, "Sleeper Berth")
+        load_id = load.id
+
+    async with AsyncSessionLocal() as session:
+        removed = await delete_or_deactivate_user(
+            db=session, target_user_id=driver_id, carrier_id=1
+        )
+
+    assert removed["id"] == driver_id
+    assert removed["email"] == "delete-vision@fleetscout.com"
+    assert removed["username"] == "deleteme"
+    assert removed["role"] == "Driver"
+
+    async with AsyncSessionLocal() as session:
+        assert await session.get(User, driver_id) is None
+
+        # The historical load survives, now detached from the driver.
+        stored_load = await session.get(Load, load_id)
+        assert stored_load is not None
+        assert stored_load.assigned_driver_id is None
+        assert stored_load.assigned_vehicle_id is not None
+
+        # The repair report survives with its driver reference cleaved.
+        reports = (
+            await session.execute(
+                select(RepairReport).where(
+                    RepairReport.description == "Historical report filed pre-removal."
+                )
+            )
+        ).scalars().all()
+        assert len(reports) == 1
+        assert reports[0].driver_id is None
+
+        # Duty history is intact, driver reference detached.
+        duty_logs = (
+            await session.execute(
+                select(DutyLog).where(DutyLog.duty_state == "Sleeper Berth")
+            )
+        ).scalars().all()
+        assert any(d.driver_id is None for d in duty_logs)
+
+
+@pytest.mark.asyncio
+async def test_deletion_guards_owner_role_self_and_cross_carrier():
+    """Executive Owner delete guardrails: foreign users are blocked, Owner
+    role accounts cannot be deleted, and self-deletion is impossible. A
+    second delete of an already-removed id resolves as not-found."""
+    async with AsyncSessionLocal() as session:
+        foreign = User(
+            email="delete-foreign@fleetscout.com",
+            username="foreigndel",
+            hashed_password="x",
+            role="Driver",
+            carrier_id=99,
+        )
+        session.add(foreign)
+        await session.commit()
+        await session.refresh(foreign)
+        foreign_id = foreign.id
+
+    with pytest.raises(PermissionError, match="another carrier"):
+        async with AsyncSessionLocal() as session:
+            await delete_or_deactivate_user(
+                db=session, target_user_id=foreign_id, carrier_id=1
+            )
+
+    async with AsyncSessionLocal() as session:
+        co_owner = User(
+            email="owner2remove@fleetscout.com",
+            username="owner2",
+            hashed_password="x",
+            role="Owner",
+            carrier_id=1,
+        )
+        session.add(co_owner)
+        await session.commit()
+        await session.refresh(co_owner)
+        co_owner_id = co_owner.id
+
+    with pytest.raises(PermissionError, match="Owner accounts"):
+        async with AsyncSessionLocal() as session:
+            await delete_or_deactivate_user(
+                db=session, target_user_id=co_owner_id, carrier_id=1
+            )
+
+    async with AsyncSessionLocal() as session:
+        self_del = User(
+            email="selfdelete@fleetscout.com",
+            username="selfdel",
+            hashed_password="x",
+            role="Driver",
+            carrier_id=1,
+        )
+        session.add(self_del)
+        await session.commit()
+        await session.refresh(self_del)
+        self_del_id = self_del.id
+
+    with pytest.raises(ValueError, match="own account"):
+        async with AsyncSessionLocal() as session:
+            await delete_or_deactivate_user(
+                db=session,
+                target_user_id=self_del_id,
+                carrier_id=1,
+                actor_user_id=self_del_id,
+            )
+
+    # A non-owner acting user can delete this driver, then a second delete of
+    # the same id is a clean not-found (no data corruption).
+    async with AsyncSessionLocal() as session:
+        await delete_or_deactivate_user(
+            db=session, target_user_id=self_del_id, carrier_id=1
+        )
+        assert await session.get(User, self_del_id) is None
+
+    with pytest.raises(ValueError, match="not found"):
+        async with AsyncSessionLocal() as session:
+            await delete_or_deactivate_user(
+                db=session, target_user_id=self_del_id, carrier_id=1
+            )
+
+
+@pytest.mark.asyncio
+async def test_password_override_binds_new_credential_and_drops_old():
+    """Executive Owner password override: new credential verifies, old one is
+    permanently invalidated."""
+    async with AsyncSessionLocal() as session:
+        member = User(
+            email="override@fleetscout.com",
+            username="overrider",
+            hashed_password=get_password_hash("original123"),
+            role="Driver",
+            carrier_id=1,
+        )
+        session.add(member)
+        await session.commit()
+        await session.refresh(member)
+        member_id = member.id
+        assert verify_password("original123", member.hashed_password)
+
+    async with AsyncSessionLocal() as session:
+        updated = await admin_reset_password(
+            db=session,
+            target_user_id=member_id,
+            new_password="tempOverride!",
+            carrier_id=1,
+        )
+
+    assert verify_password("tempOverride!", updated.hashed_password)
+    assert not verify_password("original123", updated.hashed_password)
+
+
+def test_executive_dashboard_tab_navigation_renders_all_four():
+    """Executive Owner Dashboard exposes the four executive tabs."""
+    from streamlit.testing.v1 import AppTest
+
+    probe_script = (
+        "import os, sys\n"
+        "sys.path.insert(0, os.getcwd())\n"
+        "import streamlit as st\n"
+        "from src.ui.owner_portal import render_owner_portal\n"
+        "st.set_page_config(page_title='probe')\n"
+        "render_owner_portal(carrier_id=1, actor_user_id=1)\n"
+    )
+    at = AppTest.from_string(probe_script, default_timeout=30)
+    at.run()
+    assert not at.exception
+    labels = {tab.label for tab in at.tabs}
+    assert "📊 Fleet Command Center" in labels
+    assert "🚛 Driver Console View" in labels
+    assert "👥 Team & Access Management" in labels
+    assert "⚙️ Carrier Settings" in labels
