@@ -97,6 +97,7 @@ kanban-plugin: list
 - [x] **Task 5.3: End-to-End Walkthroughs & Mobile Viewport Polish (`HD-5.3`)** `#priority/medium`
 	- **Description:** Validate full end-to-end loop (Driver grounds truck -> Dispatcher blocked -> Mechanic ungrounds -> Dispatcher assigns) and apply Streamlit mobile CSS rules.
 	- **Prerequisites:** Task 5.2
+	- **Verification:** `tests/test_end_to_end.py`, `tests/test_dispatch_api_safety.py`, `python -m scripts.verify_hd_5_3`, `python -m pytest`
 
 
 

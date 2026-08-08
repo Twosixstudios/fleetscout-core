@@ -25,6 +25,26 @@ async def get_vehicles(db: AsyncSession = Depends(get_db), current_user: User = 
 
 @router.post("/loads", response_model=LoadOut)
 async def create_load(load: LoadCreate, db: AsyncSession = Depends(get_db)):
+    # HD-5.3: Enforce the HD-5.2 safety interlock at the API layer too. The UI
+    # already blocks via create_dispatched_load; this route protects any client
+    # that posts directly to /api/loads with an assigned vehicle.
+    if load.assigned_vehicle_id is not None:
+        assigned = await db.get(Vehicle, load.assigned_vehicle_id)
+        if not assigned:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Assigned vehicle ID {load.assigned_vehicle_id} not found.",
+            )
+        if assigned.status == "Grounded":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Vehicle {assigned.unit_number} (ID {assigned.id}) is Grounded "
+                    "and cannot be assigned a load. Resolve maintenance before "
+                    "dispatching this asset."
+                ),
+            )
+
     db_load = Load(**load.model_dump())
     db.add(db_load)
     await db.commit()

@@ -61,6 +61,70 @@ MOBILE_CSS = """
     flex-wrap: wrap;
     gap: 0.6rem;
   }
+
+  /* Status indicators: pill-shaped chips read well on a narrow viewport */
+  [data-testid="stMarkdownContainer"] code {
+    background: rgba(255, 255, 255, 0.08);
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.5rem;
+    display: inline-block;
+  }
+
+  /* Card headings breathe so statuses are scannable while driving */
+  [data-testid="stMarkdownContainer"] h1,
+  [data-testid="stMarkdownContainer"] h2,
+  [data-testid="stMarkdownContainer"] h3 {
+    line-height: 1.4;
+  }
+
+  /* Bordered status cards get roomier inner padding */
+  [data-testid="stVerticalBlockBorderWrapper"] {
+    padding: 0.6rem 0.9rem;
+  }
+
+  /* Expanders (e.g. repair photo, register vehicle) are full-width tap rows */
+  [data-testid="stExpander"] details > summary {
+    min-height: 3rem;
+  }
+
+  /* Dropdown option rows: comfortable 44px tap rows on phones */
+  [data-baseweb="popover"] li,
+  [data-baseweb="menu"] li {
+    min-height: 2.5rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  /* Radio (Owner hat-switcher) & checkbox labels: touch-friendly */
+  [role="radiogroup"] label,
+  label[data-baseweb="checkbox"] {
+    min-height: 2.5rem;
+  }
+
+  /* One-tap controls: no double-tap zoom, no text selection flash */
+  .stButton > button,
+  button[data-testid="stBaseButton-secondary"],
+  button[data-testid="stBaseButton-primary"] {
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Kill horizontal scrolling from wide dataframes / long refs */
+  body {
+    overflow-x: hidden;
+  }
+
+  /* Bottom safe-area clearance so the last action isn't under the nav bar */
+  .block-container {
+    padding-top: 1.25rem;
+    padding-bottom: 4rem;
+  }
+
+  /* Alerts & toasts render as rounded, readable cards */
+  [data-testid="stAlert"],
+  [data-testid="stToastViewport"] {
+    border-radius: 0.75rem;
+  }
 }
 </style>
 """
