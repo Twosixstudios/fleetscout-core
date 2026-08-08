@@ -1,49 +1,56 @@
 # 🤖 OpenCode Execution Report
-**Timestamp:** Fri Aug  7 22:18:20 PDT 2026
+**Timestamp:** Fri Aug  7 23:01:01 PDT 2026
 
-## Task: DOCS-5.5 — Sanitize Agent Rules & Sync Tasks.md Header Status
+## Task: DOCS-5.6 — Install Global Agent Rules & Sync Phase 5 Status
 
-Clean up `Tasks.md` by removing legacy `.clinerules` references, updating agent
-instructions to reflect the active OpenCode pipeline, and bringing the
-`Current Status` header up to date with completed Phase 5 milestones.
+Update `CLAUDE.md` to establish universal, dynamic agent rules of engagement
+(removing hardcoded phase references) and sync `Tasks.md` to mark Phase 5 at
+100% completion.
 
 ### ✅ Requirements Status
 
-1. **Purge Legacy Rules References** — DONE
-   - `Tasks.md` → **Agent Instructions & Guidelines** now reads:
-     *"Always check `CLAUDE.md`, `copilot/pending_task.md`, and
-     `copilot/build_result.md` before starting work on a task."*
-   - Legacy `.clinerules/00-global.md` reference removed.
+1. **Install Dynamic Rules in CLAUDE.md** — DONE
+   - Static rules replaced with the universal **Agent Rules of Engagement**.
+   - **Dynamic Board Synchronization** now mandates flipping `[ ]` → `[x]`,
+     updating the `Current Status` progress count, and advancing the Active
+     Phase (in both `CLAUDE.md` and `Tasks.md`) the moment a phase hits 100%.
+   - Hardcoded phase references removed from the rules body.
+   - **Active Phase** set to:
+     `Phase 5 - Modular Plugins, Hardening & Deploy (Completed)`
+   - Blueprint / Execution Law / Security & DB Integrity / Git Verification
+     rules preserved verbatim.
 
-2. **Sync Current Status Header** — DONE
-   - **Active Phase** → `Phase 5 - Modular Plugins, Hardening & Deploy (Completed)`
-   - **Target Deliverable** → *"RateCon parsing hooks, OSRM/HOS routing plugins,
-     safety interceptor hard lockout, mobile viewport polish, and Streamlit driver
-     UI fixes."*
+2. **Sync Tasks.md Headers** — DONE
+   - **Active Phase** → `Phase 5 - Modular Plugins, Hardening & Deploy`
    - **Overall Progress** → `4 / 4 Tasks Completed (100%)`
+   - Current Status header flipped to `[x]`.
 
 3. **Audit Task Checkboxes** — PASSED
    - All Phase 1–5 tasks verified complete `[x]`: 1.1–1.4, 2.1–2.3, 3.1–3.4,
      4.1–4.4, 5.1–5.4 (19/19 checked).
 
 ### 🔬 Automated Verification — PASSED
-- `python -m pytest` → **58 passed, 1 warning in 6.03s** (module syntax from repo
-  root, via `venv/bin/python`).
+- `python -m pytest` → **58 passed, 1 warning in 5.96s** (module syntax from
+  repo root, via `venv/bin/python`).
 
 ### 📁 Modified Files
 ```text
+ M CLAUDE.md              (gitignored — workspace only)
  M Tasks.md
+ M copilot/pending_task.md
  M copilot/build_result.md
+ M test.db                (tracked, touched by test suite)
 ```
 
 ### 📜 Execution Logs
 ```text
 $ venv/bin/python -m pytest 2>&1 | tail -5
-======================== 58 passed, 1 warning in 6.03s =========================
+======================== 58 passed, 1 warning in 5.96s =========================
 ```
 
 ### 📝 Notes
-- Guardrail satisfied: **no code files outside `Tasks.md`** (and the execution
-  report `copilot/build_result.md` itself) were modified.
-- Commit message: `docs: sanitize agent rules and update Tasks.md status header to Phase 5 complete`
+- Guardrail satisfied: **no application code inside `src/` or `tests/` was
+  modified.** Changes are confined to the two markdown governance files,
+  `copilot/pending_task.md`, and the execution report itself.
+- Commit message: `docs: install global agent rules and set Phase 5 status to 100%`
   (pushed to `origin main`).
