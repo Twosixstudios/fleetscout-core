@@ -1,7 +1,5 @@
 ---
-
-kanban-plugin: list
-
+kanban-plugin: board
 ---
 
 ## 🚚 FleetScout - Architecture & Rules
@@ -19,7 +17,7 @@ kanban-plugin: list
 	**Target Deliverable:**
 	Owner role account, dynamic white-label carrier branding, Executive Owner Dashboard (Fleet Command Center, Driver Console, Team & Access, Carrier Settings), team roster with full deletion/access controls, onboarding invite/redemption, and password overrides.
 	
-	**Overall Progress:** 7 / 7 Tasks Completed (100%)
+	**Overall Progress:** 8 / 8 Tasks Completed (100%)
 
 
 ## 🔒 Phase 1: Future-Proof Schema & Database Foundation
@@ -118,7 +116,7 @@ kanban-plugin: list
 
 ## 🏠 Phase 6: Owner Portal, Branding & Demo Defaults
 
-	**Overall Progress:** 7 / 7 Tasks Completed (100%)
+	**Overall Progress:** 8 / 8 Tasks Completed (100%)
 
 - [x] **Task 6.1: Owner Portal, Dynamic Branding & Default Field Placeholders (`TASK-6.1`)** `#priority/high`
 	- **Description:** Establish the Owner role, auto-seed `owner@fleetscout.com` with realistic carrier defaults, build the Owner Portal UI (Carrier Settings form with greyed-out placeholders, pre-populated values, save -> live header rerun, Team Roster), and implement dynamic white-label headers.
@@ -148,6 +146,10 @@ kanban-plugin: list
 	- **Description:** Integrate the FreightSlip Rate Confirmation PDF parsing service into the Dispatch and Owner load creation forms, automatically extracting load metadata (Broker/Shipper, Rate ($ Payout), Pickup & Delivery Locations/Dates, Commodity/Weight/Reference) while enforcing a strict Human-in-the-Loop (HITL) authorization guardrail — parsed data is only *staged* for form auto-fill and the database write requires an explicit "✅ Authorize & Commit Load" click (never a zero-click insertion on PDF upload).
 	- **Prerequisites:** Task 6.6
 	- **Verification:** `venv/bin/python -m pytest` (80 passed)
+- [x] **Task 6.8: Live Fuel API Service & EIA Diesel Benchmark Engine (`TASK-6.6`)** `#priority/high`
+	- **Description:** Build a lightweight, resilient fuel price service (`src/core/fuel_service.py`) that auto-fetches weekly U.S. On-Highway Diesel prices from the EIA, caches the value on-disk with a 24-hour TTL so Streamlit reruns do not spam external HTTP requests, applies optional carrier fuel-card discounts with a non-negative floor, and provides graceful fallbacks (stale cache → `$3.85/gal` demo floor) during network outages.
+	- **Prerequisites:** Task 6.7
+	- **Verification:** `venv/bin/python -m pytest` (86 passed)
 
 
 

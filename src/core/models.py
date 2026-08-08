@@ -97,6 +97,10 @@ class Carrier(Base):
     Stores the white-label values rendered in the app header and pre-populated
     into the Owner Portal carrier settings form. Falls back to the demo
     defaults if no row exists yet.
+
+    Also carries the carrier's operating/default economics (Task TASK-6.6):
+    average fleet MPG, per-mile driver pay, and fuel-card discount used by the
+    live diesel benchmark engine to compute effective fuel cost.
     """
 
     __tablename__ = "carriers"
@@ -104,6 +108,9 @@ class Carrier(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, default="Two-Six Logistics LLC")
     dot_number = Column(String, nullable=True)
+    default_mpg = Column(Float, nullable=True, default=6.5)
+    default_driver_cpm = Column(Float, nullable=True, default=0.60)
+    carrier_fuel_discount = Column(Float, nullable=True, default=0.00)
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

@@ -1,38 +1,34 @@
-# Task ID: TASK-6.5: FreightSlip Ratecon PDF Parser & HITL Authorization
+# Task ID: TASK-6.6: Live Fuel API Service & EIA Diesel Benchmark Engine
 
 ## Objective
-Integrate the FreightSlip Rate Confirmation PDF parsing service into the Dispatch and Owner load creation forms, automatically extracting load metadata while enforcing a strict Human-in-the-Loop (HITL) authorization step before saving to SQLite.
+Build a lightweight, resilient fuel price service (`src/core/fuel_service.py`) that auto-fetches weekly U.S. On-Highway Diesel Fuel Prices, caches the value to avoid unnecessary network calls, applies optional carrier fuel card discounts, and provides graceful fallbacks during network outages.
 
 ## Target Files
-- `src/ui/dispatch_view.py`
-- `src/core/ratecon_parser.py` (or existing parser module)
-- `src/core/services.py`
+- `src/core/fuel_service.py`
+- `src/core/models.py`
 - `tests/test_end_to_end.py`
 - `Tasks.md`
 
 ## Step-by-Step Requirements
-1. **Ratecon PDF Upload Form:**
-   - Add a **"📄 Import Rate Confirmation PDF (FreightSlip AI)"** file uploader in the Load Creation UI accepting `.pdf` documents.
+1. **Fuel Price Fetching & Caching Engine (`src/core/fuel_service.py`):**
+   - Implement `get_current_diesel_price(region: str = "national") -> dict`:
+     * Auto-fetches current diesel benchmarks (e.g., U.S. EIA or open market benchmark feeds).
+     * Implements local caching (24-hour TTL in SQLite or file cache) so Streamlit reruns do not spam external HTTP requests.
+     * Returns structured metadata: `{"price_per_gal": float, "updated_at": str, "source": str, "is_fallback": bool}`.
+   - Implement robust try/except error handling: if offline or API is down, fallback seamlessly to `$3.85/gal` with `is_fallback: True`.
 
-2. **Parsing & Form Auto-Fill Engine:**
-   - Parse uploaded PDFs to extract key load parameters:
-     * **Broker / Shipper Name**
-     * **Rate ($ Payout)**
-     * **Pickup Location & Date**
-     * **Delivery Location & Date**
-     * **Commodity / Weight / Reference #**
-   - Pre-populate all matching input fields in the Load Creation form with extracted metadata.
+2. **Effective Fuel Cost Calculator:**
+   - Implement `get_effective_fuel_cost(carrier_discount: float = 0.0) -> float`:
+     * Subtracts the carrier's fuel card discount (e.g. `$0.45/gal`) from the benchmark price.
+     * Ensures calculated fuel price never drops below `$0.00`.
 
-3. **Human-in-the-Loop (HITL) Authorization Guardrail:**
-   - **DO NOT** commit parsed load data automatically to the database.
-   - Display a bold yellow verification banner:
-     > **⚠️ Verify Extracted FreightSlip Data:** *Please inspect all auto-filled fields against your original PDF rate confirmation before authorizing.*
-   - Require explicit user click on a **"✅ Authorize & Commit Load"** button to execute the database write.
+3. **Carrier Settings Schema Upgrade (`src/core/models.py`):**
+   - Ensure Carrier settings model supports optional default fields: `default_mpg` (default `6.5`), `default_driver_cpm` (default `$0.60`), and `carrier_fuel_discount` (default `$0.00`).
 
 4. **Automated Verification:**
-   - Add pytest coverage testing PDF text parsing, form auto-fill, and human authorization guards.
-   - Run `venv/bin/python -m pytest` to verify all 76+ tests pass green.
+   - Add unit tests for API parsing, fallback handling on network errors, 24-hour caching logic, and discount deductions.
+   - Run `venv/bin/python -m pytest` to confirm all 76+ tests pass green.
 
 ## Guardrails & Verification
-- Prevent zero-click database insertions on PDF uploads.
-- Run `git add . && git commit -m "feat(dispatch): integrate FreightSlip ratecon parser with HITL authorization" && git push origin main`.
+- Never allow network timeouts or API failure to crash the application.
+- Run `git add . && git commit -m "feat(fuel): add live diesel fuel benchmark service with caching and fallback guards" && git push origin main`.

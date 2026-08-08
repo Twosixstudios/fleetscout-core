@@ -1099,3 +1099,148 @@ async def test_parse_and_staging_never_writes_to_database():
         ).scalars().all()
     assert set(after) >= set(existing)
 
+
+# ==========================================
+# TASK-6.6: Live Fuel API Service & EIA Diesel Benchmark Engine
+# ==========================================
+EIA_SAMPLE_CSV = (
+    "Period,Regular Gasoline,Midgrade,Premium,On-Highway Diesel\n"
+    "08/03/2026,3.12,3.32,3.52,3.87\n"
+    "08/10/2026,3.10,3.30,3.50,3.92\n"
+)
+
+
+def _patch_fuel(monkeypatch, price=None, error=None, now=1_000_000.0):
+    """Isolate the fuel service: deterministic clock + fake benchmark fetch."""
+    import src.core.fuel_service as fs
+
+    calls = {"n": 0}
+
+    def fake_fetch(_region="national"):
+        calls["n"] += 1
+        if error is not None:
+            raise error
+        return price
+
+    monkeypatch.setattr(fs, "_now_ts", lambda: now)
+    monkeypatch.setattr(fs, "_fetch_benchmark", fake_fetch)
+    fs.clear_cache("national")
+    fs.clear_cache("offline")
+    monkeypatch.setattr(fs, "clear_cache", lambda region="national": None)
+    return fs, calls
+
+
+def test_fuel_eia_csv_parser_extracts_latest_diesel():
+    """TASK-6.6: the EIA gasdiesel CSV parser picks the newest on-highway
+    diesel column (3.92), ignores header rows, and degrades cleanly on junk."""
+    import src.core.fuel_service as fs
+
+    assert fs.parse_diesel_price_csv(EIA_SAMPLE_CSV) == pytest.approx(3.92)
+
+    muscle_bolt = (
+        "Period,Regular,Midgrade,Premium,Diesel\n"
+        "08/03/2026,3.10,3.30,3.50,3.98\n"
+    )
+    assert fs.parse_diesel_price_csv(muscle_bolt) == pytest.approx(3.98)
+
+    with pytest.raises(ValueError):
+        fs.parse_diesel_price_csv("no usable freight data here")
+
+
+def test_fuel_price_fetches_success_and_serves_24h_cache(monkeypatch):
+    """TASK-6.6: a fresh fetch returns structured metadata and the 24-hour
+    TTL cache means Streamlit reruns never re-hit the network."""
+    fs, calls = _patch_fuel(monkeypatch, price=3.95)
+
+    first = fs.get_current_diesel_price("national")
+    assert first["price_per_gal"] == pytest.approx(3.95)
+    assert first["is_fallback"] is False
+    assert "EIA" in first["source"]
+    assert first["updated_at"]
+    assert calls["n"] == 1
+
+    # Second call within the 24h TTL is served from cache — zero network calls.
+    second = fs.get_current_diesel_price("national")
+    assert second["price_per_gal"] == pytest.approx(3.95)
+    assert second["is_fallback"] is False
+    assert "Cache" in second["source"]
+    assert calls["n"] == 1
+
+    # Advancing the clock past 24h forces a live re-fetch.
+    monkeypatch.setattr(fs, "_now_ts", lambda: 1_000_000.0 + 24 * 3600 + 1)
+    third = fs.get_current_diesel_price("national")
+    assert third["price_per_gal"] == pytest.approx(3.95)
+    assert calls["n"] == 2
+
+
+def test_fuel_price_falls_back_on_network_failure(monkeypatch):
+    """TASK-6.6: an offline network must never crash the app — the service
+    degrades to the $3.85 demo floor with is_fallback True."""
+    fs, calls = _patch_fuel(
+        monkeypatch, price=None, error=ConnectionError("simulated network outage")
+    )
+
+    result = fs.get_current_diesel_price("offline")
+    assert result["is_fallback"] is True
+    assert result["price_per_gal"] == pytest.approx(3.85)
+    assert result["source"]
+    assert calls["n"] == 1
+
+    # A second offline rerun also never raises.
+    again = fs.get_current_diesel_price("offline")
+    assert again["is_fallback"] is True
+    assert again["price_per_gal"] == pytest.approx(3.85)
+
+
+def test_fuel_stale_cache_is_used_when_fetch_fails(monkeypatch):
+    """TASK-6.6: after a live fetch, a subsequent network outage serves the
+    stale cached price (marked is_fallback) instead of dropping to the floor."""
+    fs, calls = _patch_fuel(monkeypatch, price=4.10)
+    first = fs.get_current_diesel_price("national")
+    assert first["price_per_gal"] == pytest.approx(4.10)
+
+    # Network dies; the stale cache (4.10) is still preferred over $3.85.
+    monkeypatch.setattr(fs, "_fetch_benchmark", lambda region="national": (_ for _ in ()).throw(ConnectionError("offline")))
+    monkeypatch.setattr(fs, "_now_ts", lambda: 1_000_000.0 + 25 * 3600)
+    stale = fs.get_current_diesel_price("national")
+    assert stale["price_per_gal"] == pytest.approx(4.10)
+    assert stale["is_fallback"] is True
+
+
+def test_fuel_effective_cost_applies_carrier_discount(monkeypatch):
+    """TASK-6.6: the effective cost subtracts the carrier fuel-card discount
+    ($0.45/gal) and clamps to $0.00 so it never goes negative."""
+    import src.core.fuel_service as fs
+
+    _patch_fuel(monkeypatch, price=3.85)
+
+    assert fs.get_effective_fuel_cost(carrier_discount=0.45) == pytest.approx(3.40)
+    assert fs.get_effective_fuel_cost(carrier_discount=0.0) == pytest.approx(3.85)
+
+    # A discount larger than the whole price is clamped at $0.00.
+    assert fs.get_effective_fuel_cost(carrier_discount=5.00) == pytest.approx(0.00)
+
+
+@pytest.mark.asyncio
+async def test_carrier_defaults_expose_economic_fuel_columns():
+    """TASK-6.6: the Carrier settings schema supports optional default MPG,
+    driver cents-per-mile, and the fuel-card discount used by the benchmark
+    engine — pre-populated with demo defaults on a fresh row."""
+    from src.core.models import Carrier as CarrierModel
+
+    async with AsyncSessionLocal() as session:
+        fresh = CarrierModel(
+            id=777,
+            name="TASK-6.6 Carrier",
+            dot_number="USDOT-777",
+        )
+        session.add(fresh)
+        await session.commit()
+
+        stored = await session.get(CarrierModel, 777)
+        assert stored.default_mpg == pytest.approx(6.5)
+        assert stored.default_driver_cpm == pytest.approx(0.60)
+        assert stored.carrier_fuel_discount == pytest.approx(0.00)
+        await session.delete(stored)
+        await session.commit()
+
