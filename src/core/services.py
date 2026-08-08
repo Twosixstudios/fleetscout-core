@@ -1,7 +1,9 @@
+import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
+from src.api.plugins import plugin_registry
 from src.core.exceptions import SafetyViolationError
 from src.core.models import (
     Vehicle,
@@ -11,6 +13,40 @@ from src.core.models import (
     RepairReport,
     DutyLog,
 )
+
+logger = logging.getLogger("fleetscout.plugins")
+
+
+async def run_plugin_hook(
+    plugin_name: str, data: dict, **kwargs
+) -> dict:
+    """Execute a registered plugin in complete isolation (Task HD-5.1).
+
+    Guarantees plugin failure can never crash core dispatch: every exception
+    is caught, logged, and surfaced as a structured ``{"ok": False, ...}``
+    dict. No database transaction is started, altered, or rolled back by a
+    plugin hook, so dispatch logic remains deterministic regardless of
+    third-party adapter behaviour.
+    """
+    plugin = plugin_registry.get(plugin_name)
+    if plugin is None:
+        return {
+            "ok": False,
+            "plugin": plugin_name,
+            "error": f"Plugin '{plugin_name}' is not registered.",
+        }
+    try:
+        if not await plugin.validate():
+            return {
+                "ok": False,
+                "plugin": plugin_name,
+                "error": f"Plugin '{plugin_name}' failed validation.",
+            }
+        result = await plugin.execute(data, **kwargs)
+        return {"ok": True, "plugin": plugin_name, "result": result}
+    except Exception as exc:  # isolation boundary - never propagates
+        logger.exception("Plugin '%s' execution failed", plugin_name)
+        return {"ok": False, "plugin": plugin_name, "error": str(exc)}
 
 
 async def validate_vehicle_readiness(
@@ -113,6 +149,107 @@ async def create_dispatched_load(
     await session.commit()
     await session.refresh(db_load)
     return db_load
+
+
+async def dispatch_load_with_plugins(
+    session: AsyncSession,
+    *,
+    load_number: str = None,
+    load_weight: int = None,
+    commodity: str = None,
+    pickup_ref: str = None,
+    delivery_ref: str = None,
+    dispatcher_notes: str = None,
+    assigned_driver_id: int = None,
+    assigned_vehicle_id: int = None,
+    pickup_address: str = None,
+    delivery_address: str = None,
+    ratecon_bytes: bytes = None,
+    origin: str = None,
+    destination: str = None,
+    hos_driving_hours: float = None,
+    hos_start_time: str = None,
+) -> tuple[Load, dict]:
+    """Dispatch a load while consulting modular plugin hooks (Task HD-5.1).
+
+    1. ``freightslip`` parses an optional RateCon payload to auto-fill load
+       fields (commodity, weight, refs) when the caller left them unset.
+    2. ``lanesight`` computes route distance / transit time and, optionally,
+       the DOT HOS plan - appended to dispatcher notes as a summary.
+
+    Every plugin call is isolated via ``run_plugin_hook``: a failing or
+    misconfigured plugin returns a structured error dict and dispatch simply
+    continues with the provided (or defaulted) payload. Plugin hooks never
+    raise ``SafetyViolationError`` and never roll back the session. The SD-5.2
+    safety interceptor still runs once, inside ``create_dispatched_load``.
+    """
+    enrichment: dict = {}
+
+    if ratecon_bytes is not None:
+        hook = await run_plugin_hook(
+            "freightslip", {"action": "parse", "file_bytes": ratecon_bytes}
+        )
+        enrichment["freightslip"] = hook
+        if hook.get("ok"):
+            parsed = hook["result"]
+            load_number = load_number or parsed.get("load_number")
+            load_weight = load_weight or parsed.get("weight")
+            commodity = commodity or parsed.get("commodity")
+            pickup_ref = pickup_ref or parsed.get("pickup_ref")
+            delivery_ref = delivery_ref or parsed.get("delivery_ref")
+
+    notes_bits = []
+    if dispatcher_notes:
+        notes_bits.append(dispatcher_notes)
+
+    if origin and destination:
+        hook = await run_plugin_hook(
+            "lanesight", {"action": "route", "origin": origin, "destination": destination}
+        )
+        enrichment["lanesight"] = hook
+        if hook.get("ok"):
+            route = hook["result"]
+            notes_bits.append(
+                "est. {0:,.1f} mi / {1:.2f} hr".format(
+                    float(route["distance_miles"]), float(route["duration_hours"])
+                )
+            )
+
+    if hos_driving_hours is not None and hos_start_time:
+        hook = await run_plugin_hook(
+            "lanesight",
+            {"action": "hos", "driving_hours": hos_driving_hours, "start_time": hos_start_time},
+        )
+        enrichment["lanesight_hos"] = hook
+        if hook.get("ok"):
+            hos = hook["result"]
+            notes_bits.append(
+                "HOS: {} stops / avail {}".format(
+                    hos["rest_break_count"],
+                    hos["sleeper_berth_reset"]["available_at"],
+                )
+            )
+
+    load_number = load_number or f"PLG-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    load_weight = load_weight if load_weight is not None else 0
+    commodity = commodity or "TBD"
+    pickup_ref = pickup_ref or "N/A"
+    delivery_ref = delivery_ref or "N/A"
+
+    load = await create_dispatched_load(
+        session,
+        load_number=load_number,
+        load_weight=load_weight,
+        commodity=commodity,
+        pickup_ref=pickup_ref,
+        delivery_ref=delivery_ref,
+        dispatcher_notes=" | ".join(notes_bits) if notes_bits else None,
+        assigned_driver_id=assigned_driver_id,
+        assigned_vehicle_id=assigned_vehicle_id,
+        pickup_address=pickup_address,
+        delivery_address=delivery_address,
+    )
+    return load, enrichment
 
 
 async def update_load_status(

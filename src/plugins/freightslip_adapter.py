@@ -109,6 +109,22 @@ class FreightSlipAdapter(BasePlugin):
         data["provider"] = "fallback"
         return data
 
+    async def validate(self) -> bool:
+        """The adapter is always usable offline thanks to the regex fallback."""
+        return True
+
+    async def execute(self, data: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+        """Execute the RateCon parse action against a structured payload."""
+        action = data.get("action", "parse")
+        if action != "parse":
+            raise ValueError(f"FreightSlip does not support action: {action}")
+        payload = data.get("file_bytes", data.get("content"))
+        if isinstance(payload, str):
+            payload = payload.encode("utf-8")
+        if payload is None:
+            raise ValueError("parse requires a 'file_bytes' or 'content' payload.")
+        return await self.parse_rate_confirmation(payload)
+
     async def run(self, action: str, **kwargs: Any) -> Dict[str, Any]:
         """Dispatch the plugin's parse action."""
         if action == "parse":

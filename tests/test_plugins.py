@@ -187,10 +187,10 @@ def test_freightslip_parse_endpoint(client):
 
 
 def test_lanesight_route_endpoint(client, monkeypatch):
-    async def fake_route(origin, destination):
+    async def fake_route(self, origin, destination):
         return {"provider": "haversine", "origin": origin, "destination": destination, "distance_miles": 50.0}
 
-    monkeypatch.setattr("src.api.plugins.lanesight_adapter.get_route", fake_route)
+    monkeypatch.setattr(LaneSightAdapter, "get_route", fake_route)
     response = client.post(
         "/api/plugins/lanesight/route",
         json={"origin": "36.7378,-119.7871", "destination": "36.7378,-119.0"},
@@ -208,3 +208,279 @@ def test_lanesight_hos_endpoint(client):
     payload = response.json()
     assert payload["rest_break_count"] == 1
     assert len(payload["segments"]) == 3
+
+
+# ---------------------------------------------------------------------------
+# Adapter execute() / validate() contract (HD-5.1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_freightslip_adapter_validate_and_execute():
+    adapter = FreightSlipAdapter()
+    assert await adapter.validate() is True
+
+    result = await adapter.execute(
+        {"action": "parse", "file_bytes": SAMPLE_RATE_CONFIRMATION.encode("utf-8")}
+    )
+    assert result["load_number"] == "100001"
+    assert result["total_pay"] == 2765.75
+
+
+@pytest.mark.asyncio
+async def test_freightslip_execute_accepts_text_content():
+    adapter = FreightSlipAdapter()
+    result = await adapter.execute({"action": "parse", "content": SAMPLE_RATE_CONFIRMATION})
+    assert result["load_number"] == "100001"
+
+
+@pytest.mark.asyncio
+async def test_freightslip_execute_rejects_unknown_action():
+    adapter = FreightSlipAdapter()
+    with pytest.raises(ValueError):
+        await adapter.execute({"action": "heatmap", "file_bytes": b"x"})
+
+
+@pytest.mark.asyncio
+async def test_lanesight_validate_and_execute_route():
+    adapter = LaneSightAdapter()
+    assert await adapter.validate() is True
+
+    result = await adapter.execute(
+        {"action": "route", "origin": "Nowhere", "destination": "Elsewhere"}
+    )
+    assert result["provider"] == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_lanesight_execute_hos():
+    plan = await LaneSightAdapter().execute(
+        {"action": "hos", "driving_hours": 9.0, "start_time": "06:00"}
+    )
+    assert plan["rest_break_count"] == 1
+    assert len(plan["segments"]) == 3
+
+
+# ---------------------------------------------------------------------------
+# Plugin registry (HD-5.1)
+# ---------------------------------------------------------------------------
+
+
+from src.api.plugins import PluginRegistry, plugin_registry  # noqa: E402
+
+
+def test_registry_register_and_retrieve():
+    registry = PluginRegistry()
+    adapter = FreightSlipAdapter()
+    registry.register(adapter)
+
+    assert registry.get("freightslip") is adapter
+    assert registry.names() == ["freightslip"]
+    assert registry.list()["freightslip"]["name"] == "freightslip"
+
+
+def test_registry_rejects_duplicate_registration():
+    registry = PluginRegistry()
+    registry.register(FreightSlipAdapter())
+    with pytest.raises(ValueError):
+        registry.register(FreightSlipAdapter())
+
+
+def test_registry_rejects_non_plugin_instance():
+    registry = PluginRegistry()
+    with pytest.raises(TypeError):
+        registry.register(object())
+
+
+def test_global_registry_seeded_with_expected_plugins():
+    assert set(plugin_registry.names()) == {"freightslip", "lanesight"}
+    assert plugin_registry.get("freightslip") is not None
+    assert plugin_registry.get("lanesight") is not None
+
+
+@pytest.mark.asyncio
+async def test_registry_execute_freightslip():
+    registry = PluginRegistry()
+    registry.register(FreightSlipAdapter())
+    result = await registry.execute(
+        "freightslip", {"action": "parse", "file_bytes": SAMPLE_RATE_CONFIRMATION.encode("utf-8")}
+    )
+    assert result["ok"] is True
+    assert result["result"]["load_number"] == "100001"
+
+
+@pytest.mark.asyncio
+async def test_registry_execute_unknown_plugin_returns_error():
+    result = await PluginRegistry().execute("nope", {})
+    assert result["ok"] is False
+    assert "not registered" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_registry_execute_traps_plugin_exceptions():
+    registry = PluginRegistry()
+    registry.register(FreightSlipAdapter())
+    result = await registry.execute(
+        "freightslip", {"action": "parse", "file_bytes": b"\x00\x01 no  load here"}
+    )
+    assert result["ok"] is False
+    assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Service integration: plugin hooks never crash dispatch or roll back DB
+# ---------------------------------------------------------------------------
+
+
+from src.core.database import AsyncSessionLocal, Base, sync_engine  # noqa: E402
+from src.core.models import Vehicle, Load  # noqa: E402
+from src.core.services import run_plugin_hook, dispatch_load_with_plugins  # noqa: E402
+from sqlalchemy import select  # noqa: E402
+
+
+@pytest.fixture(scope="module", autouse=True)
+def reset_schema():
+    Base.metadata.drop_all(bind=sync_engine)
+    Base.metadata.create_all(bind=sync_engine)
+
+
+@pytest.mark.asyncio
+async def test_run_plugin_hook_isolates_failing_plugin():
+    result = await run_plugin_hook(
+        "freightslip", {"action": "parse", "file_bytes": b"\x00\x01 no  digits here"}
+    )
+    assert result["ok"] is False
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_run_plugin_hook_unknown_plugin():
+    result = await run_plugin_hook("does-not-exist", {})
+    assert result["ok"] is False
+    assert "not registered" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_plugin_failure_does_not_roll_back_session():
+    async with AsyncSessionLocal() as session:
+        vehicle = Vehicle(unit_number="PLG-DB-LIVE", status="Active", carrier_id=1)
+        session.add(vehicle)
+
+        # A failing plugin hook runs inside the same open session.
+        result = await run_plugin_hook(
+            "freightslip", {"action": "parse", "file_bytes": b"\x00\x01 garbage"}
+        )
+        assert result["ok"] is False
+
+        # The session transaction must still commit normally afterwards.
+        await session.commit()
+        await session.refresh(vehicle)
+        vehicle_id = vehicle.id
+
+    async with AsyncSessionLocal() as session:
+        fresh = await session.get(Vehicle, vehicle_id)
+        assert fresh is not None
+        assert fresh.unit_number == "PLG-DB-LIVE"
+
+
+def test_dispatch_with_failing_plugin_hook_still_dispatches():
+    """A failing RateCon plugin must not block or crash dispatch."""
+    import asyncio
+
+    vehicle_id, load, enrichment = None, None, None
+
+    async def _go():
+        nonlocal vehicle_id, load, enrichment
+        async with AsyncSessionLocal() as session:
+            vehicle = Vehicle(unit_number="PLG-ACTIVE-01", status="Active", carrier_id=1)
+            session.add(vehicle)
+            await session.commit()
+            await session.refresh(vehicle)
+            vehicle_id = vehicle.id
+
+        async with AsyncSessionLocal() as session:
+            load, enrichment = await dispatch_load_with_plugins(
+                session,
+                assigned_vehicle_id=vehicle_id,
+                ratecon_bytes=b"\x00\x01 totally unparseable \x02",
+            )
+
+    asyncio.run(_go())
+
+    assert load is not None
+    assert load.status == "dispatched"
+    assert enrichment["freightslip"]["ok"] is False
+
+    async def _verify():
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(Load).where(Load.load_number == load.load_number)
+            )
+            return result.scalars().first() is not None
+
+    assert asyncio.run(_verify())
+
+
+def test_dispatch_with_plugin_enrichment_and_route(monkeypatch):
+    """RateCon + lanesight enrich the dispatched load's fields/notes (offline)."""
+    import asyncio
+
+    from src.plugins.lanesight_adapter import LaneSightAdapter
+
+    async def _fake_route(self, origin, destination, transport=None):
+        return {
+            "provider": "haversine",
+            "origin": origin,
+            "destination": destination,
+            "distance_miles": 123.4,
+            "duration_hours": 2.5,
+        }
+
+    monkeypatch.setattr(LaneSightAdapter, "get_route", _fake_route)
+
+    monkeypatch.setattr(LaneSightAdapter, "get_route", _fake_route)
+
+    combined = {}
+
+    async def _go():
+        async with AsyncSessionLocal() as session:
+            vehicle = Vehicle(unit_number="PLG-ENRICH-01", status="Active", carrier_id=1)
+            session.add(vehicle)
+            await session.commit()
+            await session.refresh(vehicle)
+            vehicle_id = vehicle.id
+
+        async with AsyncSessionLocal() as session:
+            load, enrichment = await dispatch_load_with_plugins(
+                session,
+                assigned_vehicle_id=vehicle_id,
+                ratecon_bytes=SAMPLE_RATE_CONFIRMATION.encode("utf-8"),
+                origin="36.7378,-119.7871",
+                destination="36.7378,-119.0",
+                hos_driving_hours=9.0,
+                hos_start_time="06:00",
+            )
+            combined["load"] = load
+            combined["enrichment"] = enrichment
+
+    asyncio.run(_go())
+
+    load = combined["load"]
+    enrichment = combined["enrichment"]
+
+    assert load.commodity == "Auto Parts"
+    assert load.pickup_ref == "SHPR-8891"
+    assert load.delivery_ref == "CO-778"
+    assert enrichment["freightslip"]["ok"] is True
+    assert enrichment["lanesight"]["ok"] is True
+    assert enrichment["lanesight_hos"]["ok"] is True
+    assert "123.4 mi" in load.dispatcher_notes
+    assert "HOS:" in load.dispatcher_notes
+
+
+def test_registry_listing_endpoint(client):
+    response = client.get("/api/plugins")
+    assert response.status_code == 200
+    payload = response.json()
+    names = {p["name"] for p in payload["plugins"]}
+    assert names == {"freightslip", "lanesight"}

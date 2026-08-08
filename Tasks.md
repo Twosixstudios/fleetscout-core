@@ -85,11 +85,12 @@ kanban-plugin: list
 
 ## 📡 Phase 5: Modular Plugins, Hardening & Deploy
 
-	**Overall Progress:** 3 / 4 Tasks Completed (75%)
+	**Overall Progress:** 4 / 4 Tasks Completed (100%)
 
-- [ ] **Task 5.1: FreightSlip & LaneSight Modular Plugin Hooks (`HD-5.1`)** `#priority/high`
+- [x] **Task 5.1: FreightSlip & LaneSight Modular Plugin Hooks (`HD-5.1`)** `#priority/high`
 	- **Description:** Import and execute `freightslip` (RateCon PDF parser function) and `lanesight` (OSRM route & HOS calculation functions) as modular plugin packages inside FleetScout core.
 	- **Prerequisites:** Task 4.4
+	- **Verification:** `python -m pytest` (58 passed)
 - [x] **Task 5.2: Hard Lockout Safety Constraint (`HD-5.2`)** `#priority/high`
 	- **Description:** DB Interceptor: If a truck is flagged as `Grounded`, raise safety exception and physically block dispatcher load assignment.
 	- **Prerequisites:** Task 5.1

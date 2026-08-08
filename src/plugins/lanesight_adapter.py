@@ -118,7 +118,11 @@ class LaneSightAdapter(BasePlugin):
         route = payload["routes"][0]
         distance_meters = route["distance"]
         duration_seconds = route["duration"]
-        geometry = route["geometry"].get("coordinates", [])
+        geometry = route.get("geometry")
+        if isinstance(geometry, dict):
+            coordinates = geometry.get("coordinates", [])
+        else:
+            coordinates = []
         return {
             "provider": "osrm",
             "origin": origin,
@@ -126,7 +130,7 @@ class LaneSightAdapter(BasePlugin):
             "distance_miles": distance_meters / METERS_PER_MILE,
             "duration_hours": duration_seconds / 3600.0,
             "duration_seconds": duration_seconds,
-            "geometry": geometry,
+            "geometry": coordinates,
         }
 
     @staticmethod
@@ -209,6 +213,27 @@ class LaneSightAdapter(BasePlugin):
             "duration_hours": hours,
             "reason": reason,
         }
+
+    async def validate(self) -> bool:
+        """The adapter is usable offline thanks to the Haversine fallback."""
+        return True
+
+    async def execute(self, data: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+        """Execute a route or HOS action against a structured payload."""
+        action = data.get("action")
+        if action == "route":
+            origin = data.get("origin")
+            destination = data.get("destination")
+            if not origin or not destination:
+                raise ValueError("route action requires 'origin' and 'destination'.")
+            return await self.get_route(origin, destination, **kwargs)
+        if action == "hos":
+            driving_hours = data.get("driving_hours")
+            start_time = data.get("start_time")
+            if driving_hours is None or not start_time:
+                raise ValueError("hos action requires 'driving_hours' and 'start_time'.")
+            return self.calculate_hos_schedule(driving_hours, start_time)
+        raise ValueError(f"LaneSight does not support action: {action}")
 
     async def run(self, action: str, **kwargs: Any) -> Dict[str, Any]:
         if action == "route":

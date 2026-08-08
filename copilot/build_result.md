@@ -1,58 +1,79 @@
 # 🤖 OpenCode Execution Report
-**Timestamp:** Fri Aug  7 21:50:00 PDT 2026
+**Timestamp:** Fri Aug  7 22:18:20 PDT 2026
 
-## Task: FIX-5.4 — Repair Form GPS Fix & Active Load Seeding
+## Task: HD-5.1 — FreightSlip & LaneSight Modular Plugin Hooks
 
-Fix the Streamlit `MarshallComponentException` crash in the repair report form and seed an active test load assigned to the default driver so One-Tap Status Toggles render properly.
+Implement a modular plugin architecture in FleetScout core so the `freightslip`
+(RateCon parser) and `lanesight` (OSRM/HOS calculator) adapters can be
+dynamically registered, retrieved, and safely executed without ever crashing
+core dispatch or rolling back a database transaction.
 
 ### ✅ Requirements Status
 
-1. **Fix GPS Component Marshalling** — DONE
-   - `src/ui/gps_component.py:16` calls `_gps_location(key=key)` with keyword-only args (no positional `{}` dict).
-   - The entire component call is wrapped in `try/except` that returns `None` on failure, and the frontend (`gps_frontend/index.html`) reports "Unavailable" without crashing the UI.
-   - Consumers handle the `None` safely: `src/ui/repair_form.py:95` and `src/ui/status_toggles.py:88` render a contextual fallback caption.
+1. **Abstract Plugin Base (`execute` / `validate`)** — DONE
+   - `src/plugins/base.py` now requires `async execute(data: dict) -> dict` and
+     `async validate() -> bool` on every adapter via `BasePlugin(ABC)`, alongside
+     the existing `run` / `health_check` / `metadata` contract.
 
-2. **Seed Active Driver Load** — DONE
-   - `src/core/seed.py` seeds `LD-8801` (`status="dispatched"`, `assigned_driver_id=2`, `assigned_vehicle_id=1`) for `driver@fleetscout.com`, plus an initial `LoadStatusLog`.
-   - `reset_users.py` seeds `LD-TEST-1` (`dispatched`) for the `driver@twosix.com` test login.
-   - Verified in `test.db`: active `dispatched` load assigned to the primary driver.
+2. **Adapters Implement Contract** — DONE
+   - `FreightSlipAdapter.validate()/execute()` (`src/plugins/freightslip_adapter.py`):
+     parses raw RateCon bytes/text into structured load params (commodity,
+     weight, pickup/delivery refs, load number, linehaul/fuel/total pay).
+   - `LaneSightAdapter.validate()/execute()` (`src/plugins/lanesight_adapter.py`):
+     computes route distance / transit time (OSRM with Haversine fallback) and
+     DOT HOS duty schedules (30-min breaks, 11-hr limit, 10-hr sleeper reset).
 
-3. **Status Toggle Rendering** — DONE
-   - `src/ui/status_toggles.py:26` fetches the session driver's briefing and filters to `ACTIVE_STATUSES` so the touch-friendly stage buttons render only when an active load exists; graceful `st.info` fallback shown when none.
+3. **Dynamic Plugin Registry** — DONE
+   - `src/api/plugins.py` gains `PluginRegistry` (register / get / names / list /
+     execute), a module-level `plugin_registry` seeded with both adapters, and a
+     `GET /api/plugins` listing endpoint. `execute()` traps every exception and
+     returns a structured `{"ok": False, ...}` instead of raising.
 
-4. **Automated Verification** — PASSED
-   - `venv/bin/python -m pytest` → **40 passed, 1 warning in 5.91s**.
+4. **Service Integration (isolated hooks)** — DONE
+   - `src/core/services.py` wires `run_plugin_hook()` (fully isolated, logged via
+     `logging`, never raises `SafetyViolationError`, never rolls back the session)
+     and `dispatch_load_with_plugins()` which consults the freightslip plugin to
+     auto-fill load fields from a RateCon and the lanesight plugin to append route
+     distance / HOS summaries to dispatcher notes. Dispatch continues with
+     graceful defaults if a plugin fails; the HD-5.2 safety interceptor still runs
+     inside `create_dispatched_load`.
 
-### 📁 Modified Files (committed in `bc10276`):
+5. **Mark Task Completed** — DONE (`Tasks.md` Task 5.1 flipped to `[x]`, Phase 5 → 100%).
+
+### 🛠️ Bonus Fix
+- `LaneSightAdapter._build_osrm_response` now tolerates OSRM polyline-string
+  geometry (returning `[]`) instead of raising `AttributeError`, so real-world
+  OSRM payloads degrade gracefully instead of surfacing as plugin errors.
+
+### 🔬 Automated Verification — PASSED
+- `venv/bin/python -m pytest` → **58 passed, 1 warning in 5.95s**.
+- `tests/test_plugins.py` grew from 13 → 31 tests: adapter `execute`/`validate`,
+  registry registration/lookup/duplicate/non-plugin guards, registry-safe
+  execution, unknown-plugin handling, service `run_plugin_hook` isolation, and
+  DB-transaction integrity (failing plugin never rolls back a live session).
+
+### 📁 Modified Files
 ```text
- M src/ui/gps_component.py
- M src/ui/repair_form.py
- M src/ui/status_toggles.py
- M src/core/seed.py
- M reset_users.py
+ M src/plugins/base.py
+ M src/plugins/freightslip_adapter.py
+ M src/plugins/lanesight_adapter.py
+ M src/api/plugins.py
+ M src/core/services.py
+ M tests/test_plugins.py
  M Tasks.md
- M test.db
+ M copilot/build_result.md
 ```
 
-### 📜 Execution Logs:
+### 📜 Execution Logs
 ```text
-$ venv/bin/python -m pytest 2>&1 | tail -15
-tests/test_duty_clock.py ......                                        [ 32%]
-tests/test_end_to_end.py ....                                          [ 42%]
-tests/test_plugins.py .............                                    [ 75%]
-tests/test_repair_reports.py ..                                        [ 80%]
-tests/test_routes.py .                                                 [ 82%]
-tests/test_routes_ungrounding.py ....                                  [ 92%]
-tests/test_safety.py ...                                               [100%]
-
-=============================== warnings summary ===============================
-venv/lib/python3.14/site-packages/fastapi/testclient.py:1
-  StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-======================== 40 passed, 1 warning in 5.91s =========================
+$ venv/bin/python -m pytest 2>&1 | tail -3
+=========================== short test summary info ============================
+58 passed, 1 warning in 5.95s
 ```
 
 ### 📝 Notes
-- All FIX-5.4 code landed in commit `bc10276` (`fix(ui): resolve GPS component exception and seed active load for status toggles`); `Tasks.md` Task 5.4 already flipped to `[x]`.
-- This run re-verified the implementation and test suite against that committed state and refreshed `copilot/build_result.md`.
-- Working tree artifacts for this report: `copilot/build_result.md`, `copilot/pending_task.md`, and regenerated `test.db` — staged and pushed to `origin main`.
+- Commit message: `feat(phase5): complete Task HD-5.1 - FreightSlip & LaneSight Modular Plugin Hooks`
+  (pushed to `origin main`).
+- All plugin executions are wrapped so failures degrade to structured error
+  dicts — core dispatch and DB transactions are never impacted by a third-party
+  adapter exception.
