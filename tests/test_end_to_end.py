@@ -9,8 +9,10 @@ from src.core.services import (
     UNGROUND_AUTHORIZED_ROLES,
     create_dispatched_load,
     create_repair_report,
+    get_driver_briefing,
     ground_vehicle,
     unground_vehicle,
+    update_load_status,
 )
 
 
@@ -163,3 +165,43 @@ async def test_report_persisted_after_full_cycle():
         stmt = select(RepairReport).where(RepairReport.category == "Brakes")
         reports = (await session.execute(stmt)).scalars().all()
     assert len(reports) >= 1
+
+
+@pytest.mark.asyncio
+async def test_driver_briefing_eager_loads_status_logs():
+    """FIX-5.8: status_logs must survive session close on driver briefing loads."""
+    async with AsyncSessionLocal() as session:
+        driver = User(
+            email="e2e-briefing-driver@fleetscout.com",
+            hashed_password="x",
+            role="Driver",
+            carrier_id=1,
+        )
+        vehicle = Vehicle(unit_number="E2E-BRIEF-01", status="Active", carrier_id=1)
+        session.add_all([driver, vehicle])
+        await session.commit()
+        await session.refresh(driver)
+        await session.refresh(vehicle)
+
+        load = await create_dispatched_load(
+            session,
+            load_number="E2E-BRIEF-1",
+            load_weight=10000,
+            commodity="Briefing Cargo",
+            pickup_ref="PU-BRIEF",
+            delivery_ref="DEL-BRIEF",
+            assigned_vehicle_id=vehicle.id,
+            assigned_driver_id=driver.id,
+        )
+
+    async with AsyncSessionLocal() as session:
+        await update_load_status(session, load.id, "at_shipper", gps_lat=40.0, gps_lng=-74.0)
+
+    late_labels = []
+    async with AsyncSessionLocal() as session:
+        loads = await get_driver_briefing(session, driver.id)
+        briefing_load = next(l for l in loads if l.id == load.id)
+        late_labels.append(briefing_load.status_logs)
+
+    assert len(late_labels[0]) >= 1
+    assert late_labels[0][0].status == "at_shipper"

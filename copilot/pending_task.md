@@ -1,1 +1,23 @@
-# Task ID: FIX-5.7: Unified Database Seeding & User Account Alignment## ObjectiveUnify `src/core/seed.py` and `reset_users.py` to ensure all standard test accounts (`dispatcher@fleetscout.com`, `driver@fleetscout.com`, `driver@twosix.com`) are reliably seeded into `test.db` with hashed `password123` credentials.## Target Files- `src/core/seed.py`- `reset_users.py`- `test.db`- `Tasks.md`## Step-by-Step Requirements1. **Unify Seed Accounts:** Update `src/core/seed.py` and `reset_users.py` so both scripts ensure the following accounts exist in `test.db`:   - **Dispatcher:** `dispatcher@fleetscout.com` (Role: `Dispatcher`, Password: `password123`)   - **Driver 1:** `driver@fleetscout.com` (Role: `Driver`, Password: `password123`, Active Load assigned)   - **Driver 2:** `driver@twosix.com` (Role: `Driver`, Password: `password123`, Active Load assigned)2. **Re-seed Database:** Run the unified seed procedure to populate `test.db` with these accounts, vehicles, and active loads.3. **Verification:** Run `venv/bin/python -m pytest` to confirm all 58+ tests pass with the new seed state intact.## Guardrails & Verification- Ensure all passwords are valid `bcrypt` hashes of `password123`.- Verify `venv/bin/python -m pytest` passes completely.- Run `git add . && git commit -m "fix(auth): unify database seed accounts for fleetscout and twosix logins" && git push origin main` upon successful verification.
+# Task ID: FIX-5.8: Resolve DetachedInstanceError in Status Toggle Logs
+
+## Objective
+Fix `sqlalchemy.orm.exc.DetachedInstanceError` when accessing `load.status_logs` in `src/ui/status_toggles.py` by eager-loading `Load.status_logs` during active load briefing queries in `src/core/services.py`.
+
+## Target Files
+- `src/core/services.py`
+- `src/ui/status_toggles.py`
+- `tests/test_end_to_end.py`
+
+## Step-by-Step Requirements
+1. **Eager Load Relationship in Service Layer:**
+   - In `src/core/services.py` (specifically functions querying active driver loads like `get_driver_load_briefing`), add `selectinload(Load.status_logs)` to the SQLAlchemy `select` statement options.
+   - Import `selectinload` from `sqlalchemy.orm`.
+2. **Safe Fallback in Status Toggles UI:**
+   - Ensure `src/ui/status_toggles.py` safely checks `getattr(load, 'status_logs', [])` or extracts the latest timestamp without triggering un-sessioned ORM lazy loads.
+3. **Automated Verification:**
+   - Run `venv/bin/python -m pytest` to confirm all 58+ tests pass and no detached ORM instance exceptions occur.
+
+## Guardrails & Verification
+- Do not modify database models or schema definitions.
+- Ensure all async database operations continue to execute cleanly inside `AsyncSession`.
+- Run `git add . && git commit -m "fix(ui): eager load status_logs to resolve DetachedInstanceError in status toggles" && git push origin main` upon successful verification.

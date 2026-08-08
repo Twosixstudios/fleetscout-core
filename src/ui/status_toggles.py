@@ -116,7 +116,7 @@ def render_status_toggles(driver_id, driver_name=None):
                         except Exception as ex:
                             st.error(f"Failed to update status: {ex}")
 
-            last_log = (load.status_logs or [None])[0]
+            last_log = (getattr(load, 'status_logs', None) or [None])[0]
             st.caption(
                 f"Last update: {_format_timestamp(last_log.timestamp) if last_log else 'No status logged yet'}"
             )

@@ -19,7 +19,7 @@ kanban-plugin: list
 	**Target Deliverable:**
 	RateCon parsing hooks, OSRM/HOS routing plugins, safety interceptor hard lockout, mobile viewport polish, and Streamlit driver UI fixes.
 	
-	**Overall Progress:** 5 / 5 Tasks Completed (100%)
+	**Overall Progress:** 6 / 6 Tasks Completed (100%)
 
 
 ## 🔒 Phase 1: Future-Proof Schema & Database Foundation
@@ -85,7 +85,7 @@ kanban-plugin: list
 
 ## 📡 Phase 5: Modular Plugins, Hardening & Deploy
 
-	**Overall Progress:** 5 / 5 Tasks Completed (100%)
+	**Overall Progress:** 6 / 6 Tasks Completed (100%)
 
 - [x] **Task 5.1: FreightSlip & LaneSight Modular Plugin Hooks (`HD-5.1`)** `#priority/high`
 	- **Description:** Import and execute `freightslip` (RateCon PDF parser function) and `lanesight` (OSRM route & HOS calculation functions) as modular plugin packages inside FleetScout core.
@@ -106,6 +106,10 @@ kanban-plugin: list
 	- **Description:** Unify `src/core/seed.py` and `reset_users.py` so `test.db` is reliably seeded with `dispatcher@fleetscout.com` (Dispatcher), `driver@fleetscout.com` (Driver, Active Load), and `driver@twosix.com` (Driver, Active Load), all with bcrypt hashes of `password123`.
 	- **Prerequisites:** Task 5.4
 	- **Verification:** `venv/bin/python -m pytest` (58 passed)
+- [x] **Task 5.8: Resolve DetachedInstanceError in Status Toggle Logs (`FIX-5.8`)** `#priority/high`
+	- **Description:** Eager-load `Load.status_logs` in driver briefing queries (`selectinload`) and add a safe `getattr` fallback in `status_toggles.py` so `status_logs` never trigger lazy loads on detached instances.
+	- **Prerequisites:** Task 5.7
+	- **Verification:** `venv/bin/python -m pytest` (59 passed)
 
 
 

@@ -1,72 +1,26 @@
 # 🤖 OpenCode Execution Report
-**Timestamp:** Fri Aug  7 23:33:00 PDT 2026
+**Timestamp:** Fri Aug  7 23:45:00 PDT 2026
 
-## Task: FIX-5.7 — Unified Database Seeding & User Account Alignment
+### Task: FIX-5.8 — Resolve DetachedInstanceError in Status Toggle Logs
 
-Unify `src/core/seed.py` and `reset_users.py` so all standard test accounts
-(`dispatcher@fleetscout.com`, `driver@fleetscout.com`, `driver@twosix.com`)
-are reliably seeded into `test.db` with hashed `password123` credentials.
-
-### ✅ Requirements Status
-
-1. **Unify Seed Accounts (seed.py)** — DONE
-   - `src/core/seed.py` now seeds all three canonical accounts:
-     - **Dispatcher:** `dispatcher@fleetscout.com` — Role `Dispatcher`,
-       bcrypt hash of `password123`.
-     - **Driver 1:** `driver@fleetscout.com` — Role `Driver` — assigned
-       Active Load `LD-8801` (vehicle `TRK001`).
-     - **Driver 2:** `driver@twosix.com` — Role `Driver` — assigned Active
-       Load `LD-8802` (vehicle `TRK003`).
-   - Vehicles seeded: `TRK001` (Active), `TRK002` (Grounded), `TRK003`
-     (Active). Each load gets an initial `LoadStatusLog{status="dispatched"}`.
-
-2. **Unify Seed Accounts (reset_users.py)** — DONE
-   - `reset_users.py` converted to use `AsyncSession` / ORM `select()`
-     (per CLAUDE.md DB-integrity rule) and now seeds the SAME canonical
-     accounts plus an Active Load per driver:
-     - `LD-TEST-1` → `driver@fleetscout.com`
-     - `LD-TEST-2` → `driver@twosix.com`
-   - User Verification Audit confirms password match for all three accounts.
-   - Active Driver Load Audit confirms one dispatched load per driver.
-
-3. **Re-seed Database** — DONE
-   - Ran `venv/bin/python -m src.core.seed` → `test.db` refreshed with the
-     canonical accounts, vehicles, and two active dispatched loads.
-   - Direct SQLAlchemy audit confirmed:
-     `dispatcher@fleetscout.com`, `driver@fleetscout.com`,
-     `driver@twosix.com` all present with `verify_password(...) == True`
-     (bcrypt of `password123`).
-
-4. **Verification** — PASSED (multiple passes)
-   - `venv/bin/python -m pytest` → **58 passed, 1 warning in ~6s**.
-   - Test failures observed during a concurrently-running background build
-     were transient (SQLite `test.db` shared file races between parallel
-     agents); each failing test passed in isolation and the full suite is
-     **58 passed** on the final clean run.
-
-### 🔬 Automated Verification — PASSED
+### 📁 Modified Files:
 ```text
-$ venv/bin/python -m pytest 2>&1 | tail -2
-======================== 58 passed, 1 warning in 6.02s =========================
+src/core/services.py
+src/ui/status_toggles.py
+tests/test_end_to_end.py
+Tasks.md
 ```
 
-### 📁 Modified Files
+### 📜 Execution Logs:
 ```text
- M Tasks.md
- M copilot/pending_task.md
- M copilot/build_result.md
- M reset_users.py
- M src/core/seed.py
- M test.db                (re-seeded canonical state)
-```
+✅ Added selectinload(Load.status_logs) to get_driver_briefing() in src/core/services.py
+   so status_logs are eager-loaded inside the AsyncSession and survive session close.
 
-### 📝 Notes
-- Native `bcrypt` only (via `src/core/security.get_password_hash`); no
-  `passlib` dependency.
-- All writes use `AsyncSession` / async engine (no mixed sync/async loops) in
-  both scripts.
-- `Tasks.md` marked **Task 5.7 (FIX-5.7)** complete and progress updated to
-  `5 / 5 Tasks Completed (100%)`.
-- Commit message:
-  `fix(auth): unify database seed accounts for fleetscout and twosix logins`
-  (pushed to `origin main`).
+✅ Updated src/ui/status_toggles.py to read status_logs via getattr(load, 'status_logs', None),
+   preventing lazy loads on detached ORM instances (DetachedInstanceError).
+
+✅ Added regression test test_driver_briefing_eager_loads_status_logs in tests/test_end_to_end.py
+   verifying status_logs are accessible after the session closes.
+
+✅ Tests: venv/bin/python -m pytest -> 59 passed (1 warning)
+```

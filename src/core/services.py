@@ -384,7 +384,7 @@ async def get_driver_briefing(session: AsyncSession, driver_id: int):
 
     stmt = (
         select(Load)
-        .options(selectinload(Load.vehicle))
+        .options(selectinload(Load.vehicle), selectinload(Load.status_logs))
         .where(Load.assigned_driver_id == driver_id)
         .order_by(Load.created_at.desc())
     )
