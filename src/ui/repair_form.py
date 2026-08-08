@@ -11,6 +11,7 @@ from src.core.services import (
     create_repair_report,
     get_driver_briefing,
     get_recent_repair_reports,
+    ground_vehicle,
 )
 from src.ui.gps_component import gps_location
 
@@ -43,6 +44,14 @@ def _persist_report(report_data):
     async def _mutate():
         async with AsyncSessionLocal() as session:
             return await create_repair_report(session, **report_data)
+
+    return run_async(_mutate())
+
+
+def _ground_vehicle(vehicle_id):
+    async def _mutate():
+        async with AsyncSessionLocal() as session:
+            return await ground_vehicle(session, vehicle_id)
 
     return run_async(_mutate())
 
@@ -142,10 +151,27 @@ def render_repair_form(driver_id, driver_name=None):
                     "gps_lng": gps_lng,
                 }
             )
+
+            # Task HD-5.3: A safety issue report grounds the truck immediately so
+            # dispatch is blocked until a Mechanic/Owner completes the repair.
+            grounded = None
+            if vehicle_id is not None:
+                try:
+                    grounded = _ground_vehicle(vehicle_id)
+                except ValueError as gv:
+                    # Already grounded — the report itself is the audit record
+                    grounded = None
+                    st.info(str(gv))
+
             st.session_state["repair_success"] = (
                 f"Repair report #{report.id} for **{category}** submitted successfully.\n"
                 f"Thank you — maintenance has been notified."
             )
+            if grounded is not None:
+                st.session_state["repair_success"] += (
+                    f"\n🚛 Truck #{grounded.unit_number} has been **Grounded** "
+                    f"pending repairs."
+                )
             st.rerun()
         except Exception as ex:
             st.error(f"Failed to submit repair report: {ex}")

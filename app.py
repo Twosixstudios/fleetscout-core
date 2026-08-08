@@ -5,6 +5,7 @@ from src.core.database import SessionLocal
 from src.core.models import Vehicle, User, Load, OdometerLog
 from src.core.security import create_access_token, verify_password
 from src.core.services import update_vehicle_odometer
+from src.ui.styles import inject_styles
 from src.ui.dispatch_panel import render_dispatch_panel
 from src.ui.load_watch_board import render_load_watch_board
 from src.ui.maintenance_hub import render_maintenance_hub
@@ -287,6 +288,9 @@ def main():
     st.title("Fleet Scout Terminal")
     st.markdown("### Two Six Studios")
 
+    # HD-5.3: Mobile viewport polish (media-query scoped; desktop untouched)
+    inject_styles()
+
     if "is_authenticated" not in st.session_state:
         st.session_state["is_authenticated"] = False
 
@@ -344,7 +348,7 @@ def main():
         elif menu == "Load Watch Board":
             render_load_watch_board()
         elif menu == "Maintenance & Override Hub":
-            render_maintenance_hub()
+            render_maintenance_hub(actor_role=user_role)
 
     elif active_view == "Driver View":
         menu = st.sidebar.selectbox("Navigation", ["Driver Console", "Log Odometer"])

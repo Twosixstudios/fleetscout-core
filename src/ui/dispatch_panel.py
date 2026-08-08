@@ -5,6 +5,7 @@ import streamlit as st
 from sqlalchemy import select
 
 from src.core.database import AsyncSessionLocal, SessionLocal
+from src.core.exceptions import SafetyViolationError
 from src.core.models import User, Vehicle
 from src.core.services import create_dispatched_load
 from src.ui.yard_board import fetch_data, render_yard_board
@@ -139,6 +140,11 @@ def render_dispatch_panel():
                     f"Load {new_load.load_number} dispatched to {driver_label} on {vehicle_label}!"
                 )
                 st.rerun()
+            except SafetyViolationError as sve:
+                # Task HD-5.3: user-friendly alert when the safety interceptor
+                # (HD-5.2) blocks an assignment to a Grounded truck.
+                st.session_state["dispatch_blocked"] = str(sve)
+                st.rerun()
             except Exception as ex:
                 st.error(f"Failed to dispatch load: {ex}")
 
@@ -146,6 +152,11 @@ def render_dispatch_panel():
     if success_msg := st.session_state.pop("dispatch_success", None):
         st.toast(success_msg, icon="✅")
         st.success(success_msg)
+
+    # Task HD-5.3: Surface the safety lockout as a prominent alert
+    if blocked_msg := st.session_state.pop("dispatch_blocked", None):
+        st.toast(blocked_msg, icon="🛑")
+        st.error(blocked_msg)
 
     st.divider()
 

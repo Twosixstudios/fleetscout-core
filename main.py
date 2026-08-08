@@ -5,6 +5,8 @@ from src.core.database import Base, engine, AsyncSessionLocal
 from src.core.models import User, Vehicle, Load  # Register models with SQLAlchemy
 
 from src.api.auth import router
+from src.api.plugins import router as plugins_router
+from src.api.routes import router as routes_router
 
 
 @asynccontextmanager
@@ -30,3 +32,5 @@ async def read_root():
     return {"status": "healthy"}
 
 app.include_router(router, prefix="/api/auth", tags=["auth"])
+app.include_router(plugins_router, prefix="/api/plugins", tags=["Plugins"])
+app.include_router(routes_router, prefix="/api", tags=["fleet"])

@@ -178,10 +178,45 @@ async def get_recent_repair_reports(
     return (await session.execute(stmt)).scalars().all()
 
 
+# Only Owner/Mechanic roles may release a grounded asset back to the road
+# (Task HD-5.3). Dispatchers and drivers cannot override the safety lockout.
+UNGROUND_AUTHORIZED_ROLES = ("Owner", "Mechanic")
+
+
+async def ground_vehicle(session: AsyncSession, vehicle_id: int) -> Vehicle:
+    """Flags a vehicle as 'Grounded' (Task HD-5.3 lifecycle).
+
+    Called when a driver reports a safety issue affecting an asset. Once
+    grounded, the HD-5.2 interceptor blocks any load assignment until a
+    Mechanic/Owner performs the repair and un-grounds the vehicle.
+    """
+    vehicle = await session.get(Vehicle, vehicle_id)
+    if not vehicle:
+        raise ValueError(f"Vehicle with ID {vehicle_id} not found.")
+
+    if vehicle.status == "Grounded":
+        raise ValueError(f"Vehicle {vehicle.unit_number} is already Grounded.")
+
+    vehicle.status = "Grounded"
+    await session.commit()
+    await session.refresh(vehicle)
+    return vehicle
+
+
 async def unground_vehicle(
-    session: AsyncSession, vehicle_id: int
+    session: AsyncSession, vehicle_id: int, actor_role: str = None
 ) -> Vehicle:
-    """Sets a grounded vehicle's status back to 'Active' after repairs."""
+    """Sets a grounded vehicle's status back to 'Active' after repairs.
+
+    Strictly restricted to authorized roles (Mechanic/Owner). Callers must
+    supply the actor's role — Dispatchers and Drivers cannot release an asset.
+    """
+    if actor_role not in UNGROUND_AUTHORIZED_ROLES:
+        raise PermissionError(
+            f"Role '{actor_role}' is not authorized to un-ground vehicles. "
+            f"Only {', '.join(UNGROUND_AUTHORIZED_ROLES)} may release an asset."
+        )
+
     vehicle = await session.get(Vehicle, vehicle_id)
     if not vehicle:
         raise ValueError(f"Vehicle with ID {vehicle_id} not found.")

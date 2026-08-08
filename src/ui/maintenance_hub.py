@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from src.core.database import AsyncSessionLocal
 from src.core.models import OdometerLog, Vehicle
-from src.core.services import unground_vehicle
+from src.core.services import unground_vehicle, UNGROUND_AUTHORIZED_ROLES
 
 GROUNDED_STATUSES = ("Grounded", "Maintenance")
 
@@ -39,10 +39,10 @@ def _load_grounded():
     return run_async(_query())
 
 
-def _unground(vehicle_id):
+def _unground(vehicle_id, actor_role=None):
     async def _mutate():
         async with AsyncSessionLocal() as session:
-            return await unground_vehicle(session, vehicle_id)
+            return await unground_vehicle(session, vehicle_id, actor_role=actor_role)
 
     return run_async(_mutate())
 
@@ -64,9 +64,19 @@ def _maintenance_notes(vehicle):
     ]
 
 
-def render_maintenance_hub():
+def render_maintenance_hub(actor_role=None):
     st.subheader("🔧 Maintenance & Override Hub")
     st.caption("Review grounded vehicles and recent maintenance notes, then un-ground after repairs.")
+
+    # Task HD-5.3: Unground is restricted to Mechanics/Owners.
+    can_unground = actor_role in UNGROUND_AUTHORIZED_ROLES
+    if not can_unground:
+        st.warning(
+            f"Unground actions are restricted to **{', '.join(UNGROUND_AUTHORIZED_ROLES)}** "
+            "roles. Your role (`"
+            + (actor_role or "unknown")
+            + "`) can review but cannot release grounded assets."
+        )
 
     vehicles = _load_grounded()
 
@@ -95,17 +105,19 @@ def render_maintenance_hub():
             else:
                 st.caption("No maintenance notes on file for this vehicle.")
 
-            if st.button(
+            if can_unground and st.button(
                 f"Un-Ground Truck #{vehicle.unit_number}",
                 key=f"unground_{vehicle.id}",
                 type="primary",
             ):
                 try:
-                    updated = _unground(vehicle.id)
+                    updated = _unground(vehicle.id, actor_role=actor_role)
                     st.session_state["unground_success"] = (
                         f"Truck #{updated.unit_number} has been un-grounded and is back to Active!"
                     )
                     st.rerun()
+                except PermissionError as pe:
+                    st.error(str(pe))
                 except Exception as ex:
                     st.error(f"Failed to un-ground vehicle: {ex}")
 
