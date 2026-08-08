@@ -19,7 +19,7 @@ kanban-plugin: list
 	**Target Deliverable:**
 	RateCon parsing hooks, OSRM/HOS routing plugins, safety interceptor hard lockout, mobile viewport polish, and Streamlit driver UI fixes.
 	
-	**Overall Progress:** 4 / 4 Tasks Completed (100%)
+	**Overall Progress:** 5 / 5 Tasks Completed (100%)
 
 
 ## 🔒 Phase 1: Future-Proof Schema & Database Foundation
@@ -85,7 +85,7 @@ kanban-plugin: list
 
 ## 📡 Phase 5: Modular Plugins, Hardening & Deploy
 
-	**Overall Progress:** 4 / 4 Tasks Completed (100%)
+	**Overall Progress:** 5 / 5 Tasks Completed (100%)
 
 - [x] **Task 5.1: FreightSlip & LaneSight Modular Plugin Hooks (`HD-5.1`)** `#priority/high`
 	- **Description:** Import and execute `freightslip` (RateCon PDF parser function) and `lanesight` (OSRM route & HOS calculation functions) as modular plugin packages inside FleetScout core.
@@ -98,10 +98,14 @@ kanban-plugin: list
 	- **Description:** Validate full end-to-end loop (Driver grounds truck -> Dispatcher blocked -> Mechanic ungrounds -> Dispatcher assigns) and apply Streamlit mobile CSS rules.
 	- **Prerequisites:** Task 5.2
 	- **Verification:** `tests/test_end_to_end.py`, `tests/test_dispatch_api_safety.py`, `python -m scripts.verify_hd_5_3`
-- [x] **Task 5.4: Repair Form GPS Fix & Active Load Seeding (`FIX-5.4`)** `#priority/high`
+- [x] **Task 5.4: Repair Form GPS Fix & Active Load Seeding (`FIX-5.4`)** `#priority/medium`
 	- **Description:** Fix `MarshallComponentException` crash in the repair-form GPS component (remove positional args + graceful fallback) and seed an active `dispatched` load for the primary driver so One-Tap Status Toggles render.
 	- **Prerequisites:** Task 5.3
 	- **Verification:** `python -m pytest`
+- [x] **Task 5.7: Unified Database Seeding & User Account Alignment (`FIX-5.7`)** `#priority/high`
+	- **Description:** Unify `src/core/seed.py` and `reset_users.py` so `test.db` is reliably seeded with `dispatcher@fleetscout.com` (Dispatcher), `driver@fleetscout.com` (Driver, Active Load), and `driver@twosix.com` (Driver, Active Load), all with bcrypt hashes of `password123`.
+	- **Prerequisites:** Task 5.4
+	- **Verification:** `venv/bin/python -m pytest` (58 passed)
 
 
 

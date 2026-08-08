@@ -32,13 +32,22 @@ async def seed_database():
                 role="Driver",
                 carrier_id=1
             )
-            db.add_all([dispatcher, driver1])
+            driver2 = User(
+                id=3,
+                email="driver@twosix.com",
+                username="driver2",
+                hashed_password=get_password_hash("password123"),
+                role="Driver",
+                carrier_id=1
+            )
+            db.add_all([dispatcher, driver1, driver2])
             await db.commit()
 
-            # 3. Seed Vehicles
+            # 3. Seed Vehicles (two Active for the two drivers, one Grounded)
             truck1 = Vehicle(unit_number="TRK001", status="Active", carrier_id=1)
             truck2 = Vehicle(unit_number="TRK002", status="Grounded", carrier_id=1)
-            db.add_all([truck1, truck2])
+            truck3 = Vehicle(unit_number="TRK003", status="Active", carrier_id=1)
+            db.add_all([truck1, truck2, truck3])
             await db.commit()
 
             # 4. Seed Active Load (linking Driver #2 and Truck #1 AFTER both exist)
@@ -66,6 +75,35 @@ async def seed_database():
             db.add(
                 LoadStatusLog(
                     load_id=load1.id,
+                    status="dispatched",
+                    timestamp=datetime.now(timezone.utc),
+                )
+            )
+            await db.commit()
+
+            # 5. Seed a second Active Load for Driver #2 (driver@twosix.com)
+            load2 = Load(
+                load_number="LD-8802",
+                load_weight=38000.0,
+                commodity="Auto Parts",
+                status="dispatched",
+                carrier_id=1,
+                assigned_driver_id=driver2.id,
+                assigned_vehicle_id=truck3.id,
+                pickup_ref="PU-2001",
+                delivery_ref="DEL-3003",
+                pickup_address="777 Commerce Blvd, Los Angeles, CA",
+                delivery_address="1200 Harbor Dr, San Diego, CA",
+                target_pickup_at=datetime.now(timezone.utc) + timedelta(hours=3),
+                target_delivery_at=datetime.now(timezone.utc) + timedelta(hours=14),
+                dispatcher_notes="Two-Six load must arrive before warehouse close."
+            )
+            db.add(load2)
+            await db.commit()
+
+            db.add(
+                LoadStatusLog(
+                    load_id=load2.id,
                     status="dispatched",
                     timestamp=datetime.now(timezone.utc),
                 )
