@@ -10,9 +10,12 @@ _gps_location = components.declare_component(
 )
 
 
-def gps_location():
-    """Renders the browser geolocation component and returns {lat, lng} or {}."""
-    result = _gps_location({}, key="fleetscout_gps")
+def gps_location(key: str = "fleetscout_gps"):
+    """Renders the browser geolocation component and returns {lat, lng} or None."""
+    try:
+        result = _gps_location(key=key)
+    except Exception:
+        return None
     if not result:
         return None
     lat = result.get("lat")

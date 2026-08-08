@@ -85,7 +85,7 @@ def render_status_toggles(driver_id, driver_name=None):
         return
 
     st.markdown("**🛰️ GPS Position**")
-    gps = gps_location()
+    gps = gps_location(key="fleetscout_gps_toggles")
     st.caption(f"{_gps_summary(gps)}")
 
     st.divider()

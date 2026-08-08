@@ -85,7 +85,7 @@ kanban-plugin: list
 
 ## 📡 Phase 5: Modular Plugins, Hardening & Deploy
 
-	**Overall Progress:** 2 / 3 Tasks Completed (67%)
+	**Overall Progress:** 3 / 4 Tasks Completed (75%)
 
 - [ ] **Task 5.1: FreightSlip & LaneSight Modular Plugin Hooks (`HD-5.1`)** `#priority/high`
 	- **Description:** Import and execute `freightslip` (RateCon PDF parser function) and `lanesight` (OSRM route & HOS calculation functions) as modular plugin packages inside FleetScout core.
@@ -93,11 +93,14 @@ kanban-plugin: list
 - [x] **Task 5.2: Hard Lockout Safety Constraint (`HD-5.2`)** `#priority/high`
 	- **Description:** DB Interceptor: If a truck is flagged as `Grounded`, raise safety exception and physically block dispatcher load assignment.
 	- **Prerequisites:** Task 5.1
-- [ ] 
 - [x] **Task 5.3: End-to-End Walkthroughs & Mobile Viewport Polish (`HD-5.3`)** `#priority/medium`
 	- **Description:** Validate full end-to-end loop (Driver grounds truck -> Dispatcher blocked -> Mechanic ungrounds -> Dispatcher assigns) and apply Streamlit mobile CSS rules.
 	- **Prerequisites:** Task 5.2
-	- **Verification:** `tests/test_end_to_end.py`, `tests/test_dispatch_api_safety.py`, `python -m scripts.verify_hd_5_3`, `python -m pytest`
+	- **Verification:** `tests/test_end_to_end.py`, `tests/test_dispatch_api_safety.py`, `python -m scripts.verify_hd_5_3`
+- [x] **Task 5.4: Repair Form GPS Fix & Active Load Seeding (`FIX-5.4`)** `#priority/high`
+	- **Description:** Fix `MarshallComponentException` crash in the repair-form GPS component (remove positional args + graceful fallback) and seed an active `dispatched` load for the primary driver so One-Tap Status Toggles render.
+	- **Prerequisites:** Task 5.3
+	- **Verification:** `python -m pytest`
 
 
 

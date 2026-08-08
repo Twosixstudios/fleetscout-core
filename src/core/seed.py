@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 from src.core.database import AsyncSessionLocal, sync_engine, Base
-from src.core.models import User, Vehicle, Load
+from src.core.models import User, Vehicle, Load, LoadStatusLog
 from src.core.security import get_password_hash
 
 def reset_database():
@@ -26,8 +26,8 @@ async def seed_database():
             )
             driver1 = User(
                 id=2,
-                email="driver1@fleetscout.com",
-                username="driver1",
+                email="driver@fleetscout.com",
+                username="driver",
                 hashed_password=get_password_hash("password123"),
                 role="Driver",
                 carrier_id=1
@@ -46,7 +46,7 @@ async def seed_database():
                 load_number="LD-8801",
                 load_weight=42000.0,
                 commodity="Refrigerated Goods",
-                status="In Transit",
+                status="dispatched",
                 carrier_id=1,
                 assigned_driver_id=driver1.id,
                 assigned_vehicle_id=truck1.id,
@@ -59,6 +59,17 @@ async def seed_database():
                 dispatcher_notes="Reefer must stay at 34F the whole run. Call dispatch on arrival."
             )
             db.add(load1)
+            await db.commit()
+
+            # Seed an initial status log so the watch board and status
+            # toggles render a timestamped timeline for the fresh dispatch.
+            db.add(
+                LoadStatusLog(
+                    load_id=load1.id,
+                    status="dispatched",
+                    timestamp=datetime.now(timezone.utc),
+                )
+            )
             await db.commit()
 
             print("Database successfully seeded with baseline assets!")

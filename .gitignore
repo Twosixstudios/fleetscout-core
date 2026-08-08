@@ -10,3 +10,5 @@ venv/
 *.db
 test.db
 .vscode/
+build_output.tmp
+test.db

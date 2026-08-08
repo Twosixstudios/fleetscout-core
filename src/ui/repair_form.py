@@ -92,7 +92,7 @@ def render_repair_form(driver_id, driver_name=None):
         "Your report goes straight to maintenance."
     )
 
-    gps = gps_location()
+    gps = gps_location(key="fleetscout_gps_repair")
     st.caption(f"📍 GPS: {_gps_summary(gps)}")
     st.divider()
 
