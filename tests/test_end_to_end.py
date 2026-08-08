@@ -1,10 +1,11 @@
 import pytest
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from src.core.database import Base, sync_engine, AsyncSessionLocal
 from src.core.exceptions import SafetyViolationError
 from src.core.models import RepairReport, User, Vehicle
+from src.core.seed import ensure_database_seeded
 from src.core.services import (
     UNGROUND_AUTHORIZED_ROLES,
     create_dispatched_load,
@@ -14,6 +15,40 @@ from src.core.services import (
     unground_vehicle,
     update_load_status,
 )
+
+
+@pytest.mark.asyncio
+async def test_startup_self_heals_empty_database():
+    """FIX-6.2: initializing against a fresh empty database triggers auto-seeding.
+
+    The module-scoped fixture has just (re)built empty tables, so this must
+    run first: a User count of 0 forces ensure_database_seeded() to seed the
+    baseline accounts, and a second pass stays a no-op (idempotent).
+    """
+    async with AsyncSessionLocal() as session:
+        count = (await session.execute(select(func.count()).select_from(User))).scalar_one()
+    assert count == 0
+
+    seeded = await ensure_database_seeded()
+    assert seeded is True
+
+    async with AsyncSessionLocal() as session:
+        emails = set((await session.execute(select(User.email))).scalars().all())
+        baseline = {
+            "owner@fleetscout.com",
+            "dispatcher@fleetscout.com",
+            "driver@fleetscout.com",
+        }
+        assert baseline <= emails
+        assert len(emails) == 4
+
+    # Idempotent guard: re-seeding the populated DB adds nothing and never raises.
+    reseeded = await ensure_database_seeded()
+    assert reseeded is False
+    async with AsyncSessionLocal() as session:
+        assert (
+            await session.execute(select(func.count()).select_from(User))
+        ).scalar_one() == 4
 
 
 @pytest.fixture(scope="module", autouse=True)

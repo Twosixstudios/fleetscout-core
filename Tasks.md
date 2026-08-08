@@ -19,7 +19,7 @@ kanban-plugin: list
 	**Target Deliverable:**
 	Owner role account, dynamic white-label carrier branding, Owner Portal UI with form placeholders and demo fallbacks, and team roster.
 	
-	**Overall Progress:** 1 / 1 Tasks Completed (100%)
+	**Overall Progress:** 2 / 2 Tasks Completed (100%)
 
 
 ## 🔒 Phase 1: Future-Proof Schema & Database Foundation
@@ -118,12 +118,16 @@ kanban-plugin: list
 
 ## 🏠 Phase 6: Owner Portal, Branding & Demo Defaults
 
-	**Overall Progress:** 1 / 1 Tasks Completed (100%)
+	**Overall Progress:** 2 / 2 Tasks Completed (100%)
 
 - [x] **Task 6.1: Owner Portal, Dynamic Branding & Default Field Placeholders (`TASK-6.1`)** `#priority/high`
 	- **Description:** Establish the Owner role, auto-seed `owner@fleetscout.com` with realistic carrier defaults, build the Owner Portal UI (Carrier Settings form with greyed-out placeholders, pre-populated values, save -> live header rerun, Team Roster), and implement dynamic white-label headers.
 	- **Prerequisites:** Task 5.9
 	- **Verification:** `venv/bin/python -m pytest` (60 passed)
+- [x] **Task 6.2: Startup Self-Healing Database Auto-Seeding (`FIX-6.2`)** `#priority/high`
+	- **Description:** Add an automatic startup check in `app.py` (`init_db()`) that counts `User` rows via an async query and, when the database is empty or unseeded (e.g. fresh Streamlit Cloud boot), auto-executes an idempotent `seed_database()` to populate the baseline Owner (`owner@fleetscout.com`), Dispatcher, Drivers, Carrier, Vehicles, and Active Loads — without wiping existing data or raising unique/primary key errors on reruns.
+	- **Prerequisites:** Task 6.1
+	- **Verification:** `venv/bin/python -m pytest` (61 passed)
 
 
 

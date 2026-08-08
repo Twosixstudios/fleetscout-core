@@ -1,49 +1,56 @@
 # 🤖 OpenCode Execution Report
-**Timestamp:** Sat Aug  8 00:19 PDT 2026
+**Timestamp:** Sat Aug  8 01:40 PDT 2026
 
-### Task: TASK-6.1 — Owner Portal, Dynamic Branding & Default Field Placeholders
+### Task: FIX-6.2 — Startup Self-Healing Database Auto-Seeding
 
 ### 📁 Modified Files:
 ```text
-src/core/models.py
-src/core/seed.py
-src/ui/owner_portal.py   (New)
 app.py
+src/core/seed.py
+tests/test_end_to_end.py
 Tasks.md
-CLAUDE.md
 copilot/pending_task.md
 ```
 
 ### 📜 Execution Logs:
 ```text
-✅ Added Carrier model (id, name, dot_number) to src/core/models.py for
-   white-label carrier branding.
+✅ src/core/seed.py — made seed_database() idempotent:
+    - Removed the destructive reset_database() body from the seeding path
+      (tables are created on demand via Base.metadata.create_all).
+    - Every baseline row (Carrier id=1, Owner / Dispatcher / 2 Drivers,
+      TRK001-TRK003 vehicles, LD-8801 & LD-8802 active loads) is inserted
+      with a get-or-create guard by unique key, so reruns on an already
+      seeded DB never raise primary key / unique constraint exceptions and
+      never wipe existing data.
+    - Added async ensure_database_seeded() -> bool: counts the User table
+      through AsyncSession and, when count == 0, auto-executes
+      seed_database(); returns True only when seeding was triggered.
+    - __main__ still does reset_database() then seed for the explicit
+      `python -m src.core.seed` full-reset flow.
 
-✅ Auto-seeded Owner account (owner@fleetscout.com / Role: Owner /
-   carrier_id=1, bcrypt hash of password123) and baseline Carrier record
-   (name="Two-Six Logistics LLC", dot_number="USDOT-3829104") in
-   src/core/seed.py.
+✅ app.py — FIX-6.2 startup hook:
+    - Added init_db() invoked at the top of main() (once per session via
+      st.session_state). It runs asyncio.run(ensure_database_seeded()) so a
+      fresh/empty database on Streamlit Cloud auto-seeds the baseline
+      owner@fleetscout.com / dispatcher@fleetscout.com / driver@fleetscout.com
+      accounts plus Carrier, Vehicles, and Active Loads on boot. Failures are
+      swallowed (non-fatal) so the app still boots with demo defaults.
 
-✅ Built src/ui/owner_portal.py (new):
-    - Carrier Settings form with greyed-out placeholders ("e.g. Two-Six
-      Logistics LLC" / "e.g. USDOT 3829104"), pre-populated from the DB,
-      and a save() that updates the Carrier row then triggers st.rerun()
-      so the white-label header updates live.
-    - Team Roster rendering all active Dispatchers and Drivers linked to
-      the carrier.
+✅ tests/test_end_to_end.py — new pre-first test:
+    test_startup_self_heals_empty_database verifies that initializing against
+    a just-created empty schema triggers auto-seeding (count==0 -> seeded),
+    the baseline owner/ dispatcher/ driver email accounts appear, and a second
+    pass is a no-op (idempotent guard, count stays 4).
 
-✅ Refactored app.py headers to dynamic white-label output:
-   `🚚 [Carrier Name] Terminal` with a clean
-   "Powered by FleetScout | Two-Six Studios" caption. get_carrier_name()
-   falls back to demo defaults when no Carrier row exists, and the
-   Owner-only "Owner View" navigation renders owner_portal().
+✅ Tasks.md — added [x] Task 6.2 (FIX-6.2) and bumped both progress headers
+   to "2 / 2 Tasks Completed (100%)".
 
-✅ Forms/headers never render blank — baseline demo defaults preserved.
-
-✅ Tests: venv/bin/python -m pytest -> 60 passed (1 warning: httpx
-   deprecation only). Verified `python -m src.core.seed` resets and seeds
-   the Carrier + Owner account correctly.
-
-✅ Tasks.md: added Phase 6 (Task 6.1 complete, 1/1 = 100%) and advanced the
-   Active Phase in both Tasks.md and CLAUDE.md.
+✅ Tests: venv/bin/python -m pytest -> 61 passed (1 wat: httpx
+   deprecation only). Verified `python -m src.core.seed` still runs the full
+   reset+seed flow without errors, and `import app` imports cleanly (bare-mode
+   streamlit warning only).
 ```
+
+### 🔢 Verification
+- `venv/bin/python -m pytest` → **61 passed**
+- `python -m src.core.seed` → reset + seed success

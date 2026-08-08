@@ -1,9 +1,11 @@
+import asyncio
 import streamlit as st
 from sqlalchemy import select
 from zoneinfo import ZoneInfo
 from src.core.database import SessionLocal
 from src.core.models import Vehicle, User, Load, OdometerLog, Carrier
 from src.core.security import create_access_token, verify_password
+from src.core.seed import ensure_database_seeded
 from src.core.services import update_vehicle_odometer
 from src.ui.styles import inject_styles
 from src.ui.dispatch_panel import render_dispatch_panel
@@ -30,6 +32,23 @@ def format_timestamp(ts):
         ts = ts.replace(tzinfo=ZoneInfo("UTC"))
     pacific_time = ts.astimezone(ZoneInfo("America/Los_Angeles"))
     return pacific_time.strftime("%m/%d/%Y %I:%M %p")
+
+
+def init_db():
+    """One-time startup self-heal (FIX-6.2).
+
+    On first launch per session, counts User rows via an async check and
+    auto-seeds the baseline demo assets when the database is empty (e.g. a
+    fresh streamlit-Cloud deploy). Runs no more than once per session.
+    """
+    if st.session_state.get("_db_initialized"):
+        return
+    st.session_state["_db_initialized"] = True
+    try:
+        asyncio.run(ensure_database_seeded())
+    except Exception as exc:
+        st.session_state["_db_initialized"] = False
+        print(f"FleetScout auto-seed check skipped: {exc}")
 
 
 def get_carrier_name():
@@ -305,6 +324,9 @@ def driver_console():
 # MAIN ROUTING & HAT-SWITCHER (AR-2.2 & AR-2.3)
 # ==========================================
 def main():
+    # FIX-6.2: Self-Healing startup check — seed an empty database on boot.
+    init_db()
+
     # TASK-6.1: Dynamic white-label header from the baseline Carrier record.
     st.title(f"🚚 {get_carrier_name()} Terminal")
     st.markdown("##### _Powered by FleetScout | Two-Six Studios_")
