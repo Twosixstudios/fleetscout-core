@@ -1,5 +1,7 @@
 ---
+
 kanban-plugin: list
+
 ---
 
 ## 🚚 FleetScout - Architecture & Rules
@@ -86,9 +88,10 @@ kanban-plugin: list
 - [ ] **Task 5.1: FreightSlip & LaneSight Modular Plugin Hooks (`HD-5.1`)** `#priority/high`
 	- **Description:** Import and execute `freightslip` (RateCon PDF parser function) and `lanesight` (OSRM route & HOS calculation functions) as modular plugin packages inside FleetScout core.
 	- **Prerequisites:** Task 4.4
-- [ ] **Task 5.2: Hard Lockout Safety Constraint (`HD-5.2`)** `#priority/high`
+- [x] **Task 5.2: Hard Lockout Safety Constraint (`HD-5.2`)** `#priority/high`
 	- **Description:** DB Interceptor: If a truck is flagged as `Grounded`, raise safety exception and physically block dispatcher load assignment.
 	- **Prerequisites:** Task 5.1
+- [ ] 
 - [ ] **Task 5.3: End-to-End Walkthroughs & Mobile Viewport Polish (`HD-5.3`)** `#priority/medium`
 	- **Description:** Validate full end-to-end loop (Driver grounds truck -> Dispatcher blocked -> Mechanic ungrounds -> Dispatcher assigns) and apply Streamlit mobile CSS rules.
 	- **Prerequisites:** Task 5.2
@@ -98,6 +101,6 @@ kanban-plugin: list
 
 %% kanban:settings
 ```
-{"kanban-plugin":"board","show-checkboxes":true}
+{"kanban-plugin":"list","show-checkboxes":true}
 ```
 %%

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
+from src.core.exceptions import SafetyViolationError
 from src.core.models import (
     Vehicle,
     OdometerLog,
@@ -10,6 +11,28 @@ from src.core.models import (
     RepairReport,
     DutyLog,
 )
+
+
+async def validate_vehicle_readiness(
+    session: AsyncSession, vehicle_id: int
+) -> Vehicle:
+    """Safety interceptor (Task HD-5.2): blocks load assignment to Grounded vehicles.
+
+    Raises SafetyViolationError if the vehicle does not exist or its status is
+    'Grounded'. Returns the vehicle when dispatch-ready.
+    """
+    vehicle = await session.get(Vehicle, vehicle_id)
+    if not vehicle:
+        raise SafetyViolationError(
+            f"Vehicle with ID {vehicle_id} not found. Cannot assign a load."
+        )
+    if vehicle.status == "Grounded":
+        raise SafetyViolationError(
+            f"Vehicle {vehicle.unit_number} (ID {vehicle.id}) is Grounded and "
+            "cannot be assigned a load. Resolve maintenance before dispatching "
+            "this asset."
+        )
+    return vehicle
 
 
 def update_vehicle_odometer(
@@ -63,6 +86,13 @@ async def create_dispatched_load(
     target_delivery_at=None,
 ) -> Load:
     """Atomically inserts a new Load record with 'dispatched' status."""
+    if assigned_vehicle_id is not None:
+        try:
+            await validate_vehicle_readiness(session, assigned_vehicle_id)
+        except SafetyViolationError:
+            await session.rollback()
+            raise
+
     db_load = Load(
         load_number=load_number,
         load_weight=load_weight,
