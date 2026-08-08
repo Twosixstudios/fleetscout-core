@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.plugins import plugin_registry
 from src.core.exceptions import SafetyViolationError
 from src.core.models import (
+    User,
     Vehicle,
     OdometerLog,
     Load,
@@ -13,8 +14,73 @@ from src.core.models import (
     RepairReport,
     DutyLog,
 )
+from src.core.security import get_password_hash
 
 logger = logging.getLogger("fleetscout.plugins")
+
+TEAM_MEMBER_ROLES = ("Dispatcher", "Driver")
+
+
+async def create_team_member(
+    db: AsyncSession,
+    carrier_id: int,
+    email: str,
+    username: str,
+    password: str,
+    role: str,
+) -> User:
+    """Provisions a new Dispatcher/Driver account bound to the Owner's carrier.
+
+    Validates the requested role, hashes the temporary password via
+    ``get_password_hash()``, and guards against duplicate email/username
+    collisions with a user-friendly error. The new ``User`` is committed so
+    the Team Roster renders it on the very next rerun.
+    """
+    if role not in TEAM_MEMBER_ROLES:
+        raise ValueError(
+            f"Invalid role '{role}'. Choose either 'Dispatcher' or 'Driver'."
+        )
+
+    clean_email = (email or "").strip().lower()
+    clean_username = (username or "").strip()
+    if not clean_email:
+        raise ValueError("Email address is required.")
+    if not password:
+        raise ValueError("Temporary password is required.")
+
+    from sqlalchemy import select
+
+    existing_email = (
+        await db.execute(select(User).where(User.email == clean_email))
+    ).scalar_one_or_none()
+    if existing_email is not None:
+        raise ValueError(
+            f"An account with email '{clean_email}' already exists. "
+            "Choose a different email address."
+        )
+
+    if clean_username:
+        existing_username = (
+            await db.execute(select(User).where(User.username == clean_username))
+        ).scalar_one_or_none()
+        if existing_username is not None:
+            raise ValueError(
+                f"Username '{clean_username}' is already taken. "
+                "Choose a different username."
+            )
+
+    member = User(
+        email=clean_email,
+        username=clean_username or None,
+        hashed_password=get_password_hash(password),
+        role=role,
+        carrier_id=carrier_id,
+        is_active=True,
+    )
+    db.add(member)
+    await db.commit()
+    await db.refresh(member)
+    return member
 
 
 async def run_plugin_hook(

@@ -17,9 +17,9 @@ kanban-plugin: list
 - [x] **Active Phase: Phase 6 - Owner Portal, Branding & Demo Defaults**
 	
 	**Target Deliverable:**
-	Owner role account, dynamic white-label carrier branding, Owner Portal UI with form placeholders and demo fallbacks, and team roster.
+	Owner role account, dynamic white-label carrier branding, Owner Portal UI with form placeholders and demo fallbacks, team roster, and team provisioning engine.
 	
-	**Overall Progress:** 2 / 2 Tasks Completed (100%)
+	**Overall Progress:** 3 / 3 Tasks Completed (100%)
 
 
 ## 🔒 Phase 1: Future-Proof Schema & Database Foundation
@@ -118,7 +118,7 @@ kanban-plugin: list
 
 ## 🏠 Phase 6: Owner Portal, Branding & Demo Defaults
 
-	**Overall Progress:** 2 / 2 Tasks Completed (100%)
+	**Overall Progress:** 3 / 3 Tasks Completed (100%)
 
 - [x] **Task 6.1: Owner Portal, Dynamic Branding & Default Field Placeholders (`TASK-6.1`)** `#priority/high`
 	- **Description:** Establish the Owner role, auto-seed `owner@fleetscout.com` with realistic carrier defaults, build the Owner Portal UI (Carrier Settings form with greyed-out placeholders, pre-populated values, save -> live header rerun, Team Roster), and implement dynamic white-label headers.
@@ -128,6 +128,10 @@ kanban-plugin: list
 	- **Description:** Add an automatic startup check in `app.py` (`init_db()`) that counts `User` rows via an async query and, when the database is empty or unseeded (e.g. fresh Streamlit Cloud boot), auto-executes an idempotent `seed_database()` to populate the baseline Owner (`owner@fleetscout.com`), Dispatcher, Drivers, Carrier, Vehicles, and Active Loads — without wiping existing data or raising unique/primary key errors on reruns.
 	- **Prerequisites:** Task 6.1
 	- **Verification:** `venv/bin/python -m pytest` (61 passed)
+- [x] **Task 6.3: Owner Team Provisioning Engine (`TASK-6.2`)** `#priority/high`
+	- **Description:** Add `create_team_member()` to `services.py` (role validation for `Dispatcher`/`Driver`, bcrypt hashing via `get_password_hash()`, duplicate email/username guard) and a "➕ Provision New Team Member" form in the Owner Portal (`owner_portal.py`) that provisions new accounts bound to the active Owner's `carrier_id`, surfaces success/errors, and live-reruns to refresh the Team Roster.
+	- **Prerequisites:** Task 6.2
+	- **Verification:** `venv/bin/python -m pytest` (64 passed)
 
 
 

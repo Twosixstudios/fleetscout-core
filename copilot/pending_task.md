@@ -1,28 +1,36 @@
-# Task ID: FIX-6.2: Startup Self-Healing Database Auto-Seeding
-
-> **STATUS: ✅ COMPLETED** — Sat Aug  8 01:40 PDT 2026 · `venv/bin/python -m pytest` = 61 passed. See `copilot/build_result.md`.
+# Task ID: TASK-6.2: Owner Team Provisioning Engine
 
 ## Objective
-Add an automatic startup check in `app.py` so that whenever the application launches against an unseeded or empty database (such as on Streamlit Cloud), it automatically executes `seed_database()` to populate baseline accounts (`owner@fleetscout.com`, `dispatcher@fleetscout.com`, `driver@fleetscout.com`).
+Build a user creation engine inside the Owner Portal (`src/ui/owner_portal.py`) that allows Fleet Owners to provision new Dispatcher and Driver accounts directly from the UI, hash their passwords, and immediately attach them to their `carrier_id`.
 
 ## Target Files
-- `app.py`
-- `src/core/database.py`
-- `src/core/seed.py`
+- `src/ui/owner_portal.py`
+- `src/core/services.py`
+- `tests/test_end_to_end.py`
 - `Tasks.md`
 
 ## Step-by-Step Requirements
-1. **Startup Check in `app.py`:**
-   - During Streamlit app startup (e.g. inside `init_db()` or an `@st.cache_resource` startup hook), execute an async query to count records in the `User` table.
-   - If `count == 0`, immediately invoke `seed_database()` to seed the Owner (`owner@fleetscout.com`), Dispatcher, Drivers, Carrier, Vehicles, and Active Loads.
+1. **User Provisioning Service (`src/core/services.py`):**
+   - Implement an async function `create_team_member(db: AsyncSession, carrier_id: int, email: str, username: str, password: str, role: str)`:
+     * Validates that `role` is either `Dispatcher` or `Driver`.
+     * Hashes the password using `get_password_hash()`.
+     * Checks for duplicate email/username and raises a user-friendly error if already taken.
+     * Inserts the new `User` record bound to `carrier_id` and commits.
 
-2. **Idempotent Guard:**
-   - Ensure `seed_database()` handles existing records cleanly without raising primary key or unique constraint exceptions on subsequent reruns.
+2. **Team Provisioning Form (`src/ui/owner_portal.py`):**
+   - Add a **"➕ Provision New Team Member"** form/expander in the Owner Portal.
+   - Include input fields:
+     * **Email Address** (`email_input`)
+     * **Username / Name** (`username_input`)
+     * **Temporary Password** (`password_input`)
+     * **Assigned Role** (`role_selectbox` with options: `Dispatcher`, `Driver`)
+   - Handle form submission with defensive error catching (`st.success` on success, `st.error` on duplicate email/validation failures).
+   - Trigger a live rerun (`st.rerun()`) upon successful creation so the **Team Roster** table updates instantly.
 
 3. **Automated Verification:**
-   - Add/update an end-to-end test in `tests/test_end_to_end.py` verifying that initializing against a fresh empty database triggers auto-seeding.
-   - Run `venv/bin/python -m pytest` to confirm all 60+ tests pass cleanly.
+   - Add end-to-end pytest coverage verifying that an Owner can successfully provision a new Driver and Dispatcher and that duplicates are blocked.
+   - Run `venv/bin/python -m pytest` to confirm all 61+ tests pass.
 
 ## Guardrails & Verification
-- Keep all database checks asynchronous using `AsyncSession`.
-- Run `git add . && git commit -m "fix(auth): add self-healing startup database auto-seeding for cloud deployments" && git push origin main` upon successful completion.
+- Ensure all new users are strictly assigned to the active Owner's `carrier_id`.
+- Run `git add . && git commit -m "feat(owner): add team provisioning engine for dispatchers and drivers" && git push origin main` upon successful verification.

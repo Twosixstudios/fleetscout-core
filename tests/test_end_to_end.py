@@ -8,6 +8,7 @@ from src.core.models import RepairReport, User, Vehicle
 from src.core.seed import ensure_database_seeded
 from src.core.services import (
     UNGROUND_AUTHORIZED_ROLES,
+    create_team_member,
     create_dispatched_load,
     create_repair_report,
     get_driver_briefing,
@@ -15,6 +16,7 @@ from src.core.services import (
     unground_vehicle,
     update_load_status,
 )
+from src.core.security import verify_password
 
 
 @pytest.mark.asyncio
@@ -264,3 +266,80 @@ def test_gps_component_falls_back_on_load_failure(monkeypatch):
 
     monkeypatch.setattr(gc, "_gps_location", lambda *a, **k: {"lat": 33.9, "lng": -118.4})
     assert gc.gps_location(key="fallback_test") == {"lat": 33.9, "lng": -118.4}
+
+
+@pytest.mark.asyncio
+async def _create_team_member_in_session(**kwargs):
+    async with AsyncSessionLocal() as session:
+        return await create_team_member(db=session, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_owner_provisions_driver_and_dispatcher():
+    """TASK-6.2: an Owner can provision a Driver and a Dispatcher account."""
+    driver = await _create_team_member_in_session(
+        carrier_id=1,
+        email="provision-driver@fleetscout.com",
+        username="provisiondriver",
+        password="temp1234",
+        role="Driver",
+    )
+    dispatcher = await _create_team_member_in_session(
+        carrier_id=1,
+        email="provision-dispatcher@fleetscout.com",
+        username="provisiondispatcher",
+        password="temp1234",
+        role="Dispatcher",
+    )
+    assert driver.role == "Driver"
+    assert dispatcher.role == "Dispatcher"
+    assert driver.carrier_id == 1
+    assert dispatcher.carrier_id == 1
+    assert verify_password("temp1234", driver.hashed_password)
+    assert verify_password("temp1234", dispatcher.hashed_password)
+
+    async with AsyncSessionLocal() as session:
+        stored = await session.get(User, driver.id)
+        assert stored.carrier_id == 1
+        assert stored.role == "Driver"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_team_member_is_blocked():
+    """TASK-6.2: re-provisioning an existing email/username surfaces an error."""
+    await _create_team_member_in_session(
+        carrier_id=1,
+        email="dup-email@fleetscout.com",
+        username="dupemail",
+        password="temp1234",
+        role="Driver",
+    )
+    with pytest.raises(ValueError, match="already exists"):
+        await _create_team_member_in_session(
+            carrier_id=1,
+            email="dup-email@fleetscout.com",
+            username="othername",
+            password="temp1234",
+            role="Driver",
+        )
+    with pytest.raises(ValueError, match="already taken"):
+        await _create_team_member_in_session(
+            carrier_id=1,
+            email="other-email@fleetscout.com",
+            username="dupemail",
+            password="temp1234",
+            role="Dispatcher",
+        )
+
+
+@pytest.mark.asyncio
+async def test_team_member_role_validation():
+    """TASK-6.2: only Dispatcher/Driver roles may be provisioned."""
+    with pytest.raises(ValueError, match="Invalid role"):
+        await _create_team_member_in_session(
+            carrier_id=1,
+            email="bad-role@fleetscout.com",
+            username="badrole",
+            password="temp1234",
+            role="Owner",
+        )
