@@ -4,17 +4,23 @@ from sqlalchemy import func, select
 
 from src.core.database import Base, sync_engine, AsyncSessionLocal
 from src.core.exceptions import SafetyViolationError
-from src.core.models import RepairReport, User, Vehicle
+from src.core.models import RepairReport, User, UserInvite, Vehicle
 from src.core.seed import ensure_database_seeded
 from src.core.services import (
     UNGROUND_AUTHORIZED_ROLES,
+    accept_onboarding_invite,
+    admin_reset_password,
+    create_onboarding_invite,
     create_team_member,
     create_dispatched_load,
     create_repair_report,
     get_driver_briefing,
     ground_vehicle,
+    list_onboarding_invites,
+    toggle_user_active_status,
     unground_vehicle,
     update_load_status,
+    update_team_member,
 )
 from src.core.security import verify_password
 
@@ -343,3 +349,315 @@ async def test_team_member_role_validation():
             password="temp1234",
             role="Owner",
         )
+
+
+@pytest.mark.asyncio
+async def test_create_onboarding_invite_records_pending_invite():
+    """TASK-6.3: an Owner can issue a redeemable onboarding invite."""
+    async with AsyncSessionLocal() as session:
+        payload = await create_onboarding_invite(
+            db=session,
+            carrier_id=1,
+            email="recruit@fleetscout.com",
+            role="Driver",
+        )
+
+    invite = payload["invite"]
+    assert invite is not None
+    assert invite.email == "recruit@fleetscout.com"
+    assert invite.role == "Driver"
+    assert invite.carrier_id == 1
+    assert invite.status == "Pending"
+    assert invite.token is not None and len(invite.token) > 16
+    assert invite.expires_at is not None
+    assert payload["registration_link"] == f"/?invite_token={invite.token}"
+    assert "fleetscout.com" in payload["email_payload"]
+
+    # Duplicate pending invite for the same email is blocked.
+    with pytest.raises(ValueError, match="already pending"):
+        async with AsyncSessionLocal() as session:
+            await create_onboarding_invite(
+                db=session,
+                carrier_id=1,
+                email="recruit@fleetscout.com",
+                role="Driver",
+            )
+
+    async with AsyncSessionLocal() as session:
+        invites = await list_onboarding_invites(session, carrier_id=1)
+        assert any(i.email == "recruit@fleetscout.com" for i in invites)
+
+
+@pytest.mark.asyncio
+async def test_accept_onboarding_invite_creates_active_user():
+    """TASK-6.3: a recruit redeems the token and gets an active account."""
+    async with AsyncSessionLocal() as session:
+        payload = await create_onboarding_invite(
+            db=session,
+            carrier_id=1,
+            email="newhire@fleetscout.com",
+            role="Dispatcher",
+        )
+        token = payload["invite"].token
+
+    async with AsyncSessionLocal() as session:
+        recruit = await accept_onboarding_invite(
+            db=session,
+            token=token,
+            username="newhire1",
+            password="newpass123",
+        )
+
+    assert recruit is not None
+    assert recruit.email == "newhire@fleetscout.com"
+    assert recruit.username == "newhire1"
+    assert recruit.role == "Dispatcher"
+    assert recruit.carrier_id == 1
+    assert recruit.is_active is True
+    assert verify_password("newpass123", recruit.hashed_password)
+
+    # Invite is now marked Accepted and cannot be redeemed twice.
+    async with AsyncSessionLocal() as session:
+        stored = (
+            await session.execute(select(UserInvite).where(UserInvite.token == token))
+        ).scalar_one()
+        assert stored.status == "Accepted"
+        with pytest.raises(ValueError, match="already been accepted"):
+            await accept_onboarding_invite(
+                db=session, token=token, username="newhire2", password="xpass1"
+            )
+
+    # The email can no longer be invited again (account exists).
+    with pytest.raises(ValueError, match="already exists"):
+        async with AsyncSessionLocal() as session:
+            await create_onboarding_invite(
+                db=session,
+                carrier_id=1,
+                email="newhire@fleetscout.com",
+                role="Driver",
+            )
+
+
+@pytest.mark.asyncio
+async def test_accept_onboarding_invite_rejects_unknown_and_expired_tokens():
+    """TASK-6.3: unknown tokens are rejected and expired tokens hard-fail."""
+    with pytest.raises(ValueError, match="not valid"):
+        async with AsyncSessionLocal() as session:
+            await accept_onboarding_invite(
+                db=session, token="does-not-exist", username="u", password="p"
+            )
+
+    from datetime import datetime, timedelta, timezone
+
+    from src.core.models import UserInvite as UI
+
+    async with AsyncSessionLocal() as session:
+        stale = UI(
+            email="stale@fleetscout.com",
+            role="Driver",
+            carrier_id=1,
+            token="stale-token-xyz",
+            status="Pending",
+            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+        )
+        session.add(stale)
+        await session.commit()
+
+    with pytest.raises(ValueError, match="expired"):
+        async with AsyncSessionLocal() as session:
+            await accept_onboarding_invite(
+                db=session, token="stale-token-xyz", username="u", password="p"
+            )
+
+
+@pytest.mark.asyncio
+async def test_admin_reset_password_overrides_credentials():
+    """TASK-6.3: an Owner/Dispatcher can override a team member's password."""
+    async with AsyncSessionLocal() as session:
+        member = User(
+            email="pw-reset@fleetscout.com",
+            username="pwreset",
+            hashed_password="x",
+            role="Driver",
+            carrier_id=1,
+        )
+        session.add(member)
+        await session.commit()
+        await session.refresh(member)
+        member_id = member.id
+
+    async with AsyncSessionLocal() as session:
+        updated = await admin_reset_password(
+            db=session,
+            target_user_id=member_id,
+            new_password="tempOverride!",
+            carrier_id=1,
+        )
+    assert verify_password("tempOverride!", updated.hashed_password)
+
+    with pytest.raises(ValueError, match="new password"):
+        async with AsyncSessionLocal() as session:
+            await admin_reset_password(
+                db=session,
+                target_user_id=member_id,
+                new_password="",
+                carrier_id=1,
+            )
+
+
+@pytest.mark.asyncio
+async def test_admin_cross_carrier_isolation_blocks_foreign_edits():
+    """TASK-6.3: carrier_id guardrail — foreign users cannot be managed."""
+    async with AsyncSessionLocal() as session:
+        foreign = User(
+            email="foreign@fleetscout.com",
+            username="foreignuser",
+            hashed_password="x",
+            role="Driver",
+            carrier_id=99,
+        )
+        session.add(foreign)
+        await session.commit()
+        await session.refresh(foreign)
+        foreign_id = foreign.id
+
+    with pytest.raises(PermissionError, match="another carrier"):
+        async with AsyncSessionLocal() as session:
+            await admin_reset_password(
+                db=session,
+                target_user_id=foreign_id,
+                new_password="hacked123",
+                carrier_id=1,
+            )
+    with pytest.raises(PermissionError, match="another carrier"):
+        async with AsyncSessionLocal() as session:
+            await toggle_user_active_status(
+                db=session,
+                target_user_id=foreign_id,
+                active_status=False,
+                carrier_id=1,
+            )
+    with pytest.raises(PermissionError, match="another carrier"):
+        async with AsyncSessionLocal() as session:
+            await update_team_member(
+                db=session,
+                target_user_id=foreign_id,
+                username="evil",
+                email="evil@fleetscout.com",
+                role="Driver",
+                carrier_id=1,
+            )
+
+    # The foreign account's password was never touched.
+    async with AsyncSessionLocal() as session:
+        stored = await session.get(User, foreign_id)
+        assert stored.hashed_password == "x"
+
+
+@pytest.mark.asyncio
+async def test_update_team_member_edits_details_and_blocks_collisions():
+    """TASK-6.3: edit username/email/role, with duplicate guardrails."""
+    async with AsyncSessionLocal() as session:
+        member = User(
+            email="edit-me@fleetscout.com",
+            username="editme",
+            hashed_password="x",
+            role="Driver",
+            carrier_id=1,
+        )
+        session.add(member)
+        await session.commit()
+        await session.refresh(member)
+        member_id = member.id
+
+    async with AsyncSessionLocal() as session:
+        updated = await update_team_member(
+            db=session,
+            target_user_id=member_id,
+            username="editedname",
+            email="edited@fleetscout.com",
+            role="Dispatcher",
+            carrier_id=1,
+        )
+    assert updated.username == "editedname"
+    assert updated.email == "edited@fleetscout.com"
+    assert updated.role == "Dispatcher"
+
+    with pytest.raises(ValueError, match="Invalid role"):
+        async with AsyncSessionLocal() as session:
+            await update_team_member(
+                db=session,
+                target_user_id=member_id,
+                username="editedname",
+                email="edited@fleetscout.com",
+                role="Owner",
+                carrier_id=1,
+            )
+
+    async with AsyncSessionLocal() as session:
+        other = User(
+            email="other-name@fleetscout.com",
+            username="takenname",
+            hashed_password="x",
+            role="Driver",
+            carrier_id=1,
+        )
+        session.add(other)
+        await session.commit()
+
+    with pytest.raises(ValueError, match="already taken"):
+        async with AsyncSessionLocal() as session:
+            await update_team_member(
+                db=session,
+                target_user_id=member_id,
+                username="takenname",
+                email="edited@fleetscout.com",
+                role="Dispatcher",
+                carrier_id=1,
+            )
+
+
+@pytest.mark.asyncio
+async def test_toggle_user_active_status_deactivates_and_reactivates():
+    """TASK-6.3: one-click deactivate/reactivate toggle."""
+    async with AsyncSessionLocal() as session:
+        member = User(
+            email="toggle-me@fleetscout.com",
+            username="toggler",
+            hashed_password="x",
+            role="Driver",
+            carrier_id=1,
+        )
+        session.add(member)
+        await session.commit()
+        await session.refresh(member)
+        member_id = member.id
+
+    async with AsyncSessionLocal() as session:
+        deactivated = await toggle_user_active_status(
+            db=session,
+            target_user_id=member_id,
+            active_status=False,
+            carrier_id=1,
+        )
+    assert deactivated.is_active is False
+
+    async with AsyncSessionLocal() as session:
+        reactivated = await toggle_user_active_status(
+            db=session,
+            target_user_id=member_id,
+            active_status=True,
+            carrier_id=1,
+        )
+    assert reactivated.is_active is True
+
+    # Self-deactivation is blocked when actor == target.
+    with pytest.raises(ValueError, match="own account"):
+        async with AsyncSessionLocal() as session:
+            await toggle_user_active_status(
+                db=session,
+                target_user_id=member_id,
+                active_status=False,
+                carrier_id=1,
+                actor_user_id=member_id,
+            )

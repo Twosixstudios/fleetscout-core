@@ -17,9 +17,9 @@ kanban-plugin: list
 - [x] **Active Phase: Phase 6 - Owner Portal, Branding & Demo Defaults**
 	
 	**Target Deliverable:**
-	Owner role account, dynamic white-label carrier branding, Owner Portal UI with form placeholders and demo fallbacks, team roster, and team provisioning engine.
+	Owner role account, dynamic white-label carrier branding, Owner Portal UI with form placeholders and demo fallbacks, team roster, team provisioning engine, onboarding invite/redemption, and account admin controls.
 	
-	**Overall Progress:** 3 / 3 Tasks Completed (100%)
+	**Overall Progress:** 4 / 4 Tasks Completed (100%)
 
 
 ## 🔒 Phase 1: Future-Proof Schema & Database Foundation
@@ -118,7 +118,7 @@ kanban-plugin: list
 
 ## 🏠 Phase 6: Owner Portal, Branding & Demo Defaults
 
-	**Overall Progress:** 3 / 3 Tasks Completed (100%)
+	**Overall Progress:** 4 / 4 Tasks Completed (100%)
 
 - [x] **Task 6.1: Owner Portal, Dynamic Branding & Default Field Placeholders (`TASK-6.1`)** `#priority/high`
 	- **Description:** Establish the Owner role, auto-seed `owner@fleetscout.com` with realistic carrier defaults, build the Owner Portal UI (Carrier Settings form with greyed-out placeholders, pre-populated values, save -> live header rerun, Team Roster), and implement dynamic white-label headers.
@@ -132,6 +132,10 @@ kanban-plugin: list
 	- **Description:** Add `create_team_member()` to `services.py` (role validation for `Dispatcher`/`Driver`, bcrypt hashing via `get_password_hash()`, duplicate email/username guard) and a "➕ Provision New Team Member" form in the Owner Portal (`owner_portal.py`) that provisions new accounts bound to the active Owner's `carrier_id`, surfaces success/errors, and live-reruns to refresh the Team Roster.
 	- **Prerequisites:** Task 6.2
 	- **Verification:** `venv/bin/python -m pytest` (64 passed)
+- [x] **Task 6.4: Admin Controls, Dispatcher Recovery & Email Onboarding Invitations (`TASK-6.3`)** `#priority/high`
+	- **Description:** Build comprehensive account administration for Owners (Edit User, Password Overrides, Deactivate/Reactivate), password recovery tools for Dispatchers, a `UserInvite` token schema with `create_onboarding_invite()` / `accept_onboarding_invite()` services, a "Send Onboarding Invite" form with Pending Invitations list in the Owner Portal, and a public `?invite_token=` redemption screen on the login page.
+	- **Prerequisites:** Task 6.3
+	- **Verification:** `venv/bin/python -m pytest` (71 passed)
 
 
 

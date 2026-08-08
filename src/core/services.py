@@ -1,4 +1,5 @@
 import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
@@ -7,6 +8,7 @@ from src.api.plugins import plugin_registry
 from src.core.exceptions import SafetyViolationError
 from src.core.models import (
     User,
+    UserInvite,
     Vehicle,
     OdometerLog,
     Load,
@@ -19,6 +21,9 @@ from src.core.security import get_password_hash
 logger = logging.getLogger("fleetscout.plugins")
 
 TEAM_MEMBER_ROLES = ("Dispatcher", "Driver")
+
+# Invites are redeemable for 7 days before they hard-expire (Task TASK-6.3).
+INVITE_TTL_DAYS = 7
 
 
 async def create_team_member(
@@ -81,6 +86,273 @@ async def create_team_member(
     await db.commit()
     await db.refresh(member)
     return member
+
+
+# ==========================================
+# TASK-6.3: Onboarding Invites & Account Admin
+# ==========================================
+async def create_onboarding_invite(
+    db: AsyncSession, carrier_id: int, email: str, role: str
+) -> dict:
+    """Issues a redeemable onboarding invitation to a recruit (Task TASK-6.3).
+
+    Generates a cryptographically unique token, guards against duplicate
+    pending invites and existing accounts, stores the Pending invite bound to
+    the Owner's carrier network, and returns the simulated email payload
+    (registration link) for the UI to surface as the onboarding dispatch.
+    """
+    from sqlalchemy import select
+
+    if role not in TEAM_MEMBER_ROLES:
+        raise ValueError(
+            f"Invalid role '{role}'. Choose either 'Dispatcher' or 'Driver'."
+        )
+
+    clean_email = (email or "").strip().lower()
+    if not clean_email:
+        raise ValueError("Email address is required.")
+
+    existing_user = (
+        await db.execute(select(User).where(User.email == clean_email))
+    ).scalar_one_or_none()
+    if existing_user is not None:
+        raise ValueError(
+            f"An account with email '{clean_email}' already exists. "
+            "Invite a different email address."
+        )
+
+    pending = (
+        await db.execute(
+            select(UserInvite).where(
+                UserInvite.email == clean_email,
+                UserInvite.status == "Pending",
+            )
+        )
+    ).scalar_one_or_none()
+    if pending is not None:
+        raise ValueError(
+            f"An invite for '{clean_email}' is already pending. "
+            "Resend or wait for the recruit to accept it."
+        )
+
+    token = secrets.token_urlsafe(32)
+    invite = UserInvite(
+        email=clean_email,
+        role=role,
+        carrier_id=carrier_id,
+        token=token,
+        status="Pending",
+        expires_at=datetime.now(timezone.utc) + timedelta(days=INVITE_TTL_DAYS),
+    )
+    db.add(invite)
+    await db.commit()
+    await db.refresh(invite)
+
+    registration_link = f"/?invite_token={token}"
+    return {
+        "invite": invite,
+        "registration_link": registration_link,
+        "email_payload": (
+            f"Subject: You're invited to join the {carrier_id} fleet on FleetScout\n"
+            f"To: {clean_email}\n"
+            f"Body: Complete your profile by {registration_link}. "
+            f"This link expires in {INVITE_TTL_DAYS} days."
+        ),
+    }
+
+
+async def accept_onboarding_invite(
+    db: AsyncSession, token: str, username: str, password: str
+) -> User:
+    """Redeems an onboarding invitation into an active Team Member account.
+
+    Validates the token, guards against expired or already-accepted invites,
+    hashes the recruit's password with native bcrypt, creates an active
+    ``User`` bound to the invite's carrier, and marks the invite 'Accepted'
+    so the token can never be redeemed twice.
+    """
+    from sqlalchemy import select
+
+    if not token:
+        raise ValueError("An invite token is required.")
+
+    invite = (
+        await db.execute(select(UserInvite).where(UserInvite.token == token))
+    ).scalar_one_or_none()
+    if invite is None:
+        raise ValueError(
+            "That invite token is not valid. Check the link and try again."
+        )
+    if invite.status == "Accepted":
+        raise ValueError("This invite has already been accepted.")
+    expires_at = invite.expires_at
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at is None or expires_at < datetime.now(timezone.utc):
+        raise ValueError("This invite has expired. Ask your owner to re-invite you.")
+
+    clean_username = (username or "").strip()
+    if not clean_username:
+        raise ValueError("A username is required to set up your account.")
+    if not password:
+        raise ValueError("A password is required to set up your account.")
+
+    existing_username = (
+        await db.execute(select(User).where(User.username == clean_username))
+    ).scalar_one_or_none()
+    if existing_username is not None:
+        raise ValueError(
+            f"Username '{clean_username}' is already taken. Choose another."
+        )
+
+    recruit = User(
+        email=invite.email,
+        username=clean_username,
+        hashed_password=get_password_hash(password),
+        role=invite.role,
+        carrier_id=invite.carrier_id,
+        is_active=True,
+    )
+    db.add(recruit)
+    invite.status = "Accepted"
+    await db.commit()
+    await db.refresh(recruit)
+    return recruit
+
+
+async def list_onboarding_invites(db: AsyncSession, carrier_id: int):
+    """Returns all onboarding invites for a carrier, newest first."""
+    from sqlalchemy import select
+
+    stmt = (
+        select(UserInvite)
+        .where(UserInvite.carrier_id == carrier_id)
+        .order_by(UserInvite.created_at.desc())
+    )
+    return (await db.execute(stmt)).scalars().all()
+
+
+async def _require_same_carrier(db: AsyncSession, target_user_id: int, carrier_id: int) -> User:
+    """Fetch a user strictly scoped to the acting carrier network.
+
+    Prevents Owners/Dispatchers from editing, resetting, or deactivating users
+    belonging to another carrier (Task TASK-6.3 guardrail). Raises PermissionError
+    when the target user does not exist or lives in a different carrier.
+    """
+    target = await db.get(User, target_user_id)
+    if target is None:
+        raise ValueError(f"Team member with ID {target_user_id} not found.")
+    if target.carrier_id != carrier_id:
+        raise PermissionError(
+            f"Team member with ID {target_user_id} belongs to another carrier "
+            "and cannot be managed from this account."
+        )
+    return target
+
+
+async def admin_reset_password(
+    db: AsyncSession, target_user_id: int, new_password: str, carrier_id: int
+) -> User:
+    """Owner/Dispatcher instant password override (Task TASK-6.3).
+
+    Strictly scoped to the acting carrier's own team. The new password is
+    hashed with native bcrypt and committed atomically.
+    """
+    if not new_password:
+        raise ValueError("A new password is required.")
+    target = await _require_same_carrier(db, target_user_id, carrier_id)
+    target.hashed_password = get_password_hash(new_password)
+    await db.commit()
+    await db.refresh(target)
+    return target
+
+
+async def update_team_member(
+    db: AsyncSession,
+    target_user_id: int,
+    username: str,
+    email: str,
+    role: str,
+    carrier_id: int,
+) -> User:
+    """Owner edits a team member's username, email, or role (Task TASK-6.3).
+
+    Guards duplicate email/username collisions and only accepts
+    Dispatcher/Driver roles. Strictly carrier-scoped.
+    """
+    from sqlalchemy import select
+
+    target = await _require_same_carrier(db, target_user_id, carrier_id)
+
+    if role not in TEAM_MEMBER_ROLES:
+        raise ValueError(
+            f"Invalid role '{role}'. Choose either 'Dispatcher' or 'Driver'."
+        )
+
+    clean_email = (email or "").strip().lower()
+    clean_username = (username or "").strip()
+    if not clean_email:
+        raise ValueError("Email address is required.")
+
+    conflict_email = (
+        await db.execute(
+            select(User).where(
+                User.email == clean_email, User.id != target_user_id
+            )
+        )
+    ).scalar_one_or_none()
+    if conflict_email is not None:
+        raise ValueError(
+            f"An account with email '{clean_email}' already exists. "
+            "Choose a different email address."
+        )
+
+    if clean_username:
+        conflict_username = (
+            await db.execute(
+                select(User).where(
+                    User.username == clean_username, User.id != target_user_id
+                )
+            )
+        ).scalar_one_or_none()
+        if conflict_username is not None:
+            raise ValueError(
+                f"Username '{clean_username}' is already taken. "
+                "Choose a different username."
+            )
+
+    target.username = clean_username or None
+    target.email = clean_email
+    target.role = role
+    await db.commit()
+    await db.refresh(target)
+    return target
+
+
+async def toggle_user_active_status(
+    db: AsyncSession,
+    target_user_id: int,
+    active_status: bool,
+    carrier_id: int,
+    actor_user_id: int = None,
+) -> User:
+    """One-click Deactivate / Reactivate switch (Task TASK-6.3).
+
+    Carrier-scoped. An Owner cannot deactivate their own account, so the
+    acting user id is dropped when supplied; attempting a self-deactivation
+    raises a user-friendly ValueError.
+    """
+    target = await _require_same_carrier(db, target_user_id, carrier_id)
+
+    if actor_user_id is not None and actor_user_id == target_user_id and not active_status:
+        raise ValueError(
+            "You cannot deactivate your own account. Ask another owner to manage it."
+        )
+
+    target.is_active = bool(active_status)
+    await db.commit()
+    await db.refresh(target)
+    return target
 
 
 async def run_plugin_hook(

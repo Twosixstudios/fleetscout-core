@@ -152,6 +152,33 @@ class RepairReport(Base):
     REPAIR_CATEGORIES = ("Brakes", "Tires", "Lights", "Engine Light", "Trailer")
 
 
+class UserInvite(Base):
+    """Onboarding invitation issued by an Owner to a recruit (Task TASK-6.3).
+
+    A pending invite stores the target email, intended role, and a one-time
+    redemption token. A recruit redeems the token on the public registration
+    screen to create an active Team Member account bound to the owner's
+    carrier network. Once redeemed the record is marked 'Accepted' so the
+    same token cannot create a second account.
+    """
+
+    __tablename__ = "user_invites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, index=True, nullable=False)
+    role = Column(String, nullable=False)
+    carrier_id = Column(Integer, nullable=False)
+    token = Column(String, unique=True, index=True, nullable=False)
+    status = Column(String, default="Pending", nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    # Task TASK-6.3 invite lifecycle states
+    INVITE_STATUSES = ("Pending", "Accepted")
+
+
 class DutyLog(Base):
     """Driver hours-of-service duty entry for the reset planner (Task DS-4.4).
 

@@ -1,12 +1,15 @@
 # 🤖 OpenCode Execution Report
-**Timestamp:** Sat Aug  8 01:40 PDT 2026
+**Timestamp:** Sat Aug  8 12:49 PDT 2026
 
-### Task: TASK-6.2 — Owner Team Provisioning Engine
+### Task: TASK-6.3 — Admin Controls, Dispatcher Recovery & Email Onboarding Invitations
 
 ### 📁 Modified Files:
 ```text
+src/core/models.py
 src/core/services.py
 src/ui/owner_portal.py
+src/ui/dispatch_view.py
+app.py
 tests/test_end_to_end.py
 Tasks.md
 copilot/build_result.md
@@ -14,52 +17,63 @@ copilot/build_result.md
 
 ### 📜 Execution Logs:
 ```text
-✅ src/core/services.py — added async create_team_member():
-    - Defined TEAM_MEMBER_ROLES = ("Dispatcher", "Driver") and validates the
-      requested role, raising ValueError for anything else.
-    - Normalizes email/username, requires a password, and hashes it with the
-      native bcrypt get_password_hash() (no passlib).
-    - Pre-flight duplicate checks: an existing email raises "...already
-      exists" and an existing username raises "...already taken", both as
-      user-friendly ValueErrors before any INSERT.
-    - Inserts the new User bound to the Owner's carrier_id with is_active=True
-      and commits atomically (AsyncSession only).
+✅ src/core/models.py — added the UserInvite onboarding model:
+    - New user_invites table storing email, role, carrier_id, unique token,
+      status (Pending/Accepted), expires_at, and created_at (UTC).
 
-✅ src/ui/owner_portal.py — added the "➕ Provision New Team Member" form:
-    - New st.form with Email Address, Username / Name, Temporary Password
-      (type=password), and Assigned Role selectbox (Dispatcher / Driver).
-    - On submit: calls _provision_team_member() -> create_team_member();
-      success sets st.session_state["owner_provisioned"] and triggers
-      st.rerun() so the Team Roster renders the new account instantly.
-    - Defensive catching: ValueError duplicates/validation -> st.error,
-      any other exception -> st.error with a fallback message.
-    - Restructured the Team Roster section so the provisioning form always
-      renders even when the roster is empty (form precedes the empty-state
-      info box).
+✅ src/core/services.py — added five Task TASK-6.3 services, all AsyncSession,
+   native bcrypt, with strict carrier_id isolation:
+    - create_onboarding_invite(): role validation, duplicate pending-invite +
+      existing-account guards, secrets.token_urlsafe(32) token, 7-day TTL,
+      and a simulated email payload containing the /?invite_token= link.
+    - accept_onboarding_invite(): validates token / expiry (timezone-safe) /
+      Accepted-state, hashes the recruit's password, creates an ACTIVE User
+      bound to the invite's carrier_id, and marks the invite Accepted so a
+      token can never be redeemed twice.
+    - list_onboarding_invites(): Pending/Accepted invite history per carrier.
+    - admin_reset_password(): instant password override, carrier-scoped.
+    - update_team_member(): edit username/email/role with duplicate guards.
+    - toggle_user_active_status(): one-click deactivate/reactivate, with
+      self-deactivation blocked via actor_user_id.
 
-✅ tests/test_end_to_end.py — added two async end-to-end tests:
-    - test_owner_provisions_driver_and_dispatcher verifies an Owner can
-      create both a Driver and a Dispatcher, that each is bound to
-      carrier_id=1, and that the stored hashes verify against the temporary
-      password via verify_password().
-    - test_duplicate_team_member_is_blocked verifies a second user with an
-      existing email OR existing username raises the friendly ValueError.
-    - test_team_member_role_validation blocks provisioning a non
-      Dispatcher/Driver role (Owner) with ValueError "Invalid role".
+✅ src/ui/owner_portal.py — added TASK-6.3 admin UI:
+  - "Send Onboarding Invite" form (email + role) with a collapsible
+    "Pending Invitations" status list.
+  - Interactive Team Roster controls per member: Edit Details expander
+    (username/email/role), Reset Password override form, and a one-click
+    Deactivate / Reactivate toggle. Roster now shows active AND deactivated
+    members.
 
-✅ Tasks.md — added [x] Task 6.3 (TASK-6.2), updated the Target Deliverable
-   to include the team provisioning engine, and bumped both progress headers
-   to "3 / 3 Tasks Completed (100%)".
+✅ src/ui/dispatch_view.py — NEW Dispatcher recovery tool (Account Recovery):
+  - Select a carrier team member, then either "Generate Recovery PIN"
+    (secrets) or "Set Temporary Password", applied via admin_reset_password()
+    with carrier isolation.
 
-✅ Tests: venv/bin/python -m pytest -> 64 passed (1 httpx deprecation
-   warning only). Import checks for src.core.services and src.ui.owner_portal
-   pass cleanly.
+✅ app.py — added the public Onboarding Redemption screen on the login route:
+   Reads ?invite_token= (st.query_params / session), renders a "Redeem Invite"
+   form (username + password), calls accept_onboarding_invite(), and signs
+   the recruit into their new account. "Account Recovery" menu now appears for
+   Dispatcher + Owner roles in the Dispatch View.
+
+✅ tests/test_end_to_end.py — added 7 async end-to-end tests:
+   invite generation + duplicate-pending guard, token redemption + active
+   user + double-redeem block, unknown/expired token rejection,
+   admin password override, cross-carrier carrier_id isolation (PasswordError
+   on foreign users), edit-member collisions, and deactivate/reactivate plus
+   self-deactivation block.
+
+✅ Tasks.md — marked Off Phase 6 deliverable; added [x] Task 6.4 (TASK-6.3),
+   updated Target Deliverable + progress header to "4 / 4 (100%)".
+
+✅ Tests: venv/bin/python -m pytest -> 71 passed (1 httpx deprecation warning).
+   Import checks for src.core.services, src.ui.owner_portal, src.ui.dispatch_view,
+   app.py pass cleanly.
 ```
 
 ### 🔢 Verification
-- `venv/bin/python -m pytest` → **64 passed**
+- `venv/bin/python -m pytest` → **71 passed** (1 warning only)
 
 ### 🚀 Guardrail Confirmation
-- All new users are strictly bound to the Owner's `carrier_id` (tested).
+- Invite/edit/reset/deactivate strictly carrier-scoped via `_require_same_carrier` (tested with cross-carrier PermissionError).
 - Native `bcrypt` only (`get_password_hash`), all DB ops via `AsyncSession`.
 - Git commit + `git push origin main` requested per `Tasks.md` guardrails.

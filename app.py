@@ -6,9 +6,10 @@ from src.core.database import SessionLocal
 from src.core.models import Vehicle, User, Load, OdometerLog, Carrier
 from src.core.security import create_access_token, verify_password
 from src.core.seed import ensure_database_seeded
-from src.core.services import update_vehicle_odometer
+from src.core.services import update_vehicle_odometer, accept_onboarding_invite
 from src.ui.styles import inject_styles
 from src.ui.dispatch_panel import render_dispatch_panel
+from src.ui.dispatch_view import render_dispatch_view
 from src.ui.load_watch_board import render_load_watch_board
 from src.ui.maintenance_hub import render_maintenance_hub
 from src.ui.driver_briefing import render_driver_briefing
@@ -83,8 +84,90 @@ def format_vehicle_option(vehicle):
 # ==========================================
 # AUTHENTICATION & LOGIN (AR-2.1)
 # ==========================================
+def _serve_existing_user(user):
+    """Shared post-auth session wiring for login + invite redemption."""
+    user_role = user.role
+    access_token = create_access_token(
+        data={"sub": user.email, "role": user_role, "carrier_id": user.carrier_id}
+    )
+
+    # Store authentication and role state
+    st.session_state["is_authenticated"] = True
+    st.session_state["user_id"] = user.id
+    st.session_state["access_token"] = access_token
+    st.session_state["user_email"] = user.email
+    st.session_state["user_role"] = user_role
+
+    # Set initial view mode based on role
+    if user_role in ["Owner", "Dispatcher"]:
+        st.session_state["active_view"] = "Dispatch View"
+    else:
+        st.session_state["active_view"] = "Driver View"
+
+    st.success(f"Welcome! Logged in as {user_role}.")
+    st.rerun()
+
+
+def redeem_invite(token):
+    """TASK-6.3: Public onboarding registration for invited recruits.
+
+    Called from the login page whenever an ``?invite_token=`` URL parameter
+    is present. Lets the recruit complete their username/password setup,
+    then signs them straight into their new account.
+    """
+    st.subheader("✉️ Redeem Invite")
+    st.caption("Finish setting up your FleetScout account to get started.")
+
+    with st.form(key="redeem_invite_form", clear_on_submit=False):
+        r_username = st.text_input("Choose a Username / Name", key="redeem_username")
+        r_password = st.text_input("Create a Password", type="password", key="redeem_password")
+        submit_redeem = st.form_submit_button("Activate My Account", type="primary")
+
+    if submit_redeem:
+        if not r_username.strip():
+            st.error("Please choose a username.")
+            return
+        if not r_password:
+            st.error("Please create a password.")
+            return
+        try:
+            async def _redeem():
+                from src.core.database import AsyncSessionLocal
+
+                async with AsyncSessionLocal() as session:
+                    return await accept_onboarding_invite(
+                        db=session,
+                        token=token,
+                        username=r_username.strip(),
+                        password=r_password,
+                    )
+
+            redeem_result = asyncio.run(_redeem())
+            st.session_state.pop("invite_token", None)
+            _serve_existing_user(redeem_result)
+        except ValueError as ve:
+            st.error(str(ve))
+        except Exception as ex:
+            st.error(f"Failed to redeem invite: {ex}")
+
+
 def login():
     st.subheader("Login to Fleet Scout")
+    invite_token = st.session_state.get("invite_token") or (
+        st.query_params.get("invite_token") or [None]
+    )
+    if isinstance(invite_token, list):
+        invite_token = invite_token[0] if invite_token else None
+
+    if invite_token:
+        st.session_state["invite_token"] = invite_token
+        if st.sidebar.button("← Back to Login", key="back_to_login"):
+            st.session_state.pop("invite_token", None)
+            st.query_params.clear()
+            st.rerun()
+        redeem_invite(invite_token)
+        return
+
     with st.form(key="login_form", clear_on_submit=False):
         email = st.text_input("Email")
         password = st.text_input("Password", type="password")
@@ -105,26 +188,7 @@ def login():
                     st.error("Incorrect email or password.")
                     return
 
-                user_role = user.role
-                access_token = create_access_token(
-                    data={"sub": user.email, "role": user_role, "carrier_id": user.carrier_id}
-                )
-
-                # Store authentication and role state
-                st.session_state["is_authenticated"] = True
-                st.session_state["user_id"] = user.id
-                st.session_state["access_token"] = access_token
-                st.session_state["user_email"] = email
-                st.session_state["user_role"] = user_role
-
-                # Set initial view mode based on role
-                if user_role in ["Owner", "Dispatcher"]:
-                    st.session_state["active_view"] = "Dispatch View"
-                else:
-                    st.session_state["active_view"] = "Driver View"
-
-                st.success(f"Welcome back! Logged in as {user_role}.")
-                st.rerun()
+                _serve_existing_user(user)
             except Exception as db_err:
                 db.rollback()
                 st.error(f"Database error during login: {db_err}")
@@ -380,6 +444,9 @@ def main():
     # AR-2.2: Routing Logic based on Active View
     if active_view == "Dispatch View":
         menu_options = ["Active Fleet", "Odometer Updates", "Active Loads", "Dispatch & Yard Board", "Load Watch Board", "Maintenance & Override Hub"]
+        # TASK-6.3: Recovery tools for Dispatcher + Owner roles.
+        if user_role in ("Owner", "Dispatcher"):
+            menu_options.append("Account Recovery")
         # TASK-6.1: Owner-only "Owner View" portal for carrier settings + team roster.
         if user_role == "Owner":
             menu_options.append("Owner View")
@@ -396,6 +463,8 @@ def main():
             render_load_watch_board()
         elif menu == "Maintenance & Override Hub":
             render_maintenance_hub(actor_role=user_role)
+        elif menu == "Account Recovery":
+            render_dispatch_view(carrier_id=1)
         elif menu == "Owner View":
             render_owner_portal(carrier_id=1)
 
