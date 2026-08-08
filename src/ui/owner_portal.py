@@ -17,6 +17,7 @@ from src.core.services import (
 )
 from src.ui.driver_briefing import render_driver_briefing
 from src.ui.driver_reset_planner import render_driver_reset_planner
+from src.ui.gps_component import render_demo_map
 from src.ui.repair_form import render_repair_form
 from src.ui.status_toggles import render_status_toggles
 
@@ -224,6 +225,10 @@ def _render_fleet_command_center(carrier_id):
 
     st.markdown("#### ▶️ Live Dispatch Map")
     with st.container(border=True):
+        # TASK-6.4: interactive demo telemetry map (st.map) injected whenever
+        # live browser GPS is unavailable or blocked.
+        render_demo_map()
+        st.divider()
         if not loads:
             st.info("No active loads to track right now.")
         else:
@@ -293,6 +298,9 @@ def _render_driver_console_view(actor_user_id):
     if not actor_user_id:
         st.warning("No active user identity found for the owner-operator console.")
         return
+
+    st.markdown("**🗺️ On-Road Telemetry**")
+    render_demo_map()
 
     render_driver_briefing(driver_id=actor_user_id, driver_name="Owner-Operator")
     render_status_toggles(driver_id=actor_user_id, driver_name="Owner-Operator")

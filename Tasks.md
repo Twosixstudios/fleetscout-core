@@ -19,7 +19,7 @@ kanban-plugin: list
 	**Target Deliverable:**
 	Owner role account, dynamic white-label carrier branding, Executive Owner Dashboard (Fleet Command Center, Driver Console, Team & Access, Carrier Settings), team roster with full deletion/access controls, onboarding invite/redemption, and password overrides.
 	
-	**Overall Progress:** 5 / 5 Tasks Completed (100%)
+	**Overall Progress:** 6 / 6 Tasks Completed (100%)
 
 
 ## 🔒 Phase 1: Future-Proof Schema & Database Foundation
@@ -118,7 +118,7 @@ kanban-plugin: list
 
 ## 🏠 Phase 6: Owner Portal, Branding & Demo Defaults
 
-	**Overall Progress:** 5 / 5 Tasks Completed (100%)
+	**Overall Progress:** 6 / 6 Tasks Completed (100%)
 
 - [x] **Task 6.1: Owner Portal, Dynamic Branding & Default Field Placeholders (`TASK-6.1`)** `#priority/high`
 	- **Description:** Establish the Owner role, auto-seed `owner@fleetscout.com` with realistic carrier defaults, build the Owner Portal UI (Carrier Settings form with greyed-out placeholders, pre-populated values, save -> live header rerun, Team Roster), and implement dynamic white-label headers.
@@ -140,6 +140,10 @@ kanban-plugin: list
 	- **Description:** Replace the sidebar hat-switcher with a tabbed Executive Owner Dashboard (📊 Fleet Command Center, 🚛 Driver Console View, 👥 Team & Access Management, ⚙️ Carrier Settings), add `delete_or_deactivate_user()` (strict carrier scoping, Owner + self-deletion guardrails, historical trip/report/duty logs preserved with detached references), add a Team Roster Action Column with 🗑️ Delete/Remove, 🔑 Reset Password, and ✏️ Edit Details controls, and keep email onboarding invites/redemption.
 	- **Prerequisites:** Task 6.4
 	- **Verification:** `venv/bin/python -m pytest` (75 passed)
+- [x] **Task 6.6: Mock GPS Telemetry & Interactive Demo Mapping (`TASK-6.4`)** `#priority/high`
+	- **Description:** Enhance the mock engine and fleet maps so that whenever live browser GPS is unavailable or blocked (e.g. Streamlit Cloud), the system auto-injects realistic mock GPS telemetry along the SoCal I-10 / LA freight corridor (hub `34.0522, -118.2437` — TRK-001 In Transit, TRK-002 Docked, etc. with simulated speed/heading/status) and renders a live interactive `st.map` overlay in the Fleet Command Center, Driver Console, and Dispatch views with the 📍 Live Demo Telemetry (I-10 / LA Corridor) indicator.
+	- **Prerequisites:** Task 6.5
+	- **Verification:** `venv/bin/python -m pytest` (76 passed)
 
 
 

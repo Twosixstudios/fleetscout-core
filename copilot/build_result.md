@@ -1,74 +1,92 @@
 # 🤖 OpenCode Execution Report
-**Timestamp:** Sat Aug  8 14:30 PDT 2026
 
-### Task: TASK-6.4 — Executive Owner Dashboard & Complete Account Controls
+**Task:** TASK-6.4 — Mock GPS Telemetry & Interactive Demo Mapping
+**Timestamp:** Sat Aug  8 17:20:00 PDT 2026
+**Status:** ✅ Complete — 76 passed
+
+---
 
 ### 📁 Modified Files:
 ```text
-src/core/services.py
-src/ui/owner_portal.py
-app.py
-tests/test_end_to_end.py
-Tasks.md
-copilot/build_result.md
+ M Tasks.md
+ M copilot/pending_task.md
+ M src/ui/dispatch_view.py
+ M src/ui/driver_reset_planner.py
+ M src/ui/gps_component.py
+ M src/ui/owner_portal.py
+ M src/ui/repair_form.py
+ M src/ui/status_toggles.py
+ M test.db
+ M tests/test_end_to_end.py
 ```
 
-### 📜 Execution Logs:
+### 🎯 Objective
+Whenever live browser GPS is unavailable or blocked (e.g. Streamlit Cloud), the
+system now auto-injects realistic mock GPS telemetry along the Southern
+California I-10 / Ports of LA / Inland Empire freight corridor (`34.0522, -118.2437`)
+and renders a live interactive `st.map` overlay for customer demos — instead of a
+blank "Location unavailable" state.
+
+---
+
+### 📜 Execution Logs
+
+#### 1. Mock Telemetry Engine (`src/ui/gps_component.py`)
+- Added `MOCK_CENTER_LAT/LNG` hub (`34.0522, -118.2437`), `MOCK_CORRIDOR_LABEL = "I-10 / LA Corridor"`,
+  and the required indicator caption `MOCK_TELEMETRY_LABEL = "📍 GPS: Live Demo Telemetry (I-10 / LA Corridor)"`.
+- `MOCK_FLEET`: six corridor units (`TRK-001 In Transit` @ 61 mph, `TRK-002 Docked` @ 0 mph,
+  `TRK-003`–`TRK-006` with varied speeds/headings). Each carries `demo: True`, `speed_mph`,
+  and `heading_deg`.
+- `generate_mock_telemetry(ref_time)` — deterministic per snapshot; moving units drift along the
+  corridor, Docked units stay pinned with zero ground speed.
+- `mock_telemetry(key)` — fully deterministic per session key (drift anchor derived from a stable
+  hash, not the wall clock), returns `{demo, fallback, lat, lng, label, vehicles}` centered on the
+  freight corridor.
+- `gps_location(key)` — preserves all existing FIX-5.9 defensive `try/except` and `None` guards;
+  every fallback now returns demo telemetry instead of a blank state. Live GPS passes through as
+  `{lat, lng, demo: False, fallback: False, vehicles: []}`.
+- `render_demo_map()` — renders the interactive `st.map` layer + per-marker unit table
+  (unit, status, speed, heading); a broken map layer degrades to the marker table so demos never crash.
+
+#### Interactive Map Integration (Fleet Command Center + Driver Console + Dispatch)
+- `src/ui/owner_portal.py` — `_render_fleet_command_center` renders the demo map under
+  "▶️ Live Dispatch Map"; `_render_driver_console_view` renders "🗺️ On-Road Telemetry" for
+  solo owner-operators.
+- `src/ui/dispatch_view.py` — Dispatcher recovery page now shows "🗺️ Live Dispatch Telemetry".
+- Call sites safely restored to the canonical exported API `render_demo_map` (removed stale
+  `render_fleet_map` references). 
+
+#### GPS-Sensitive UI Captions
+- `status_toggles.py`, `repair_form.py`, `driver_reset_planner.py` — `_gps_summary()` now renders
+  the `📍 GPS: Live Demo Telemetry (I-10 / LA Corridor)` label when the feed is demo telemetry,
+  never "Location unavailable".
+
+#### Tests (`tests/test_end_to_end.py`)
+- `test_gps_component_falls_back_to_demo_telemetry_on_load_failure` — verifies `None`/exception/
+  empty/empty-dict all yield `fallback=True` demo telemetry on the corridor; live coords return
+  `fallback: False` with an empty `vehicles` list.
+- `test_mock_telemetry_generates_realistic_fleet_markers` — verifies TRK-001/TRK-002 statuses,
+  speed/heading bounds, corridor coordinate bounds, and deterministic replay per key.
+
+#### Tasks.md
+- `Task 6.6: Mock GPS Telemetry & Interactive Demo Mapping` flipped to `[x]`.
+- Phase 6 overall progress updated to **6 / 6 Tasks Completed (100%)**; Current Status header synced.
+
+---
+
+### 🧪 Verification
 ```text
-✅ src/core/services.py — new delete_or_deactivate_user():
-    - db: AsyncSession; strict carrier_id isolation via _require_same_carrier().
-    - Guardrails: Owner-role accounts are non-deletable (PermissionError);
-      an actor may never delete their own account (actor_user_id, ValueError).
-    - Preserves historical integrity: Load.assigned_driver_id,
-      RepairReport.driver_id, and DutyLog.driver_id references are detached
-      (NULL) before the hard DELETE, so trip/report/duty history stays intact
-      and FK constraints are never violated.
-    - Double-delete of an already-removed id resolves as a clean not-found.
-
-✅ src/ui/owner_portal.py — Executive Dashboard (blocked into st.tabs):
-    - 📊 Fleet Command Center: live metrics (Active Loads / Fleet Vehicles /
-      Road-Ready / Grounded), simulated dispatch map of active loads with
-      driver + truck, active Load Board dataframe, and Vehicle Statuses.
-    - 🚛 Driver Console View: solo owner-operator view reusing driver briefing,
-      one-tap status toggles, structured repair form, and HOS duty clock.
-    - 👥 Team & Access Management: Provision New Team Member, Send Onboarding
-      Invite + Pending Invitations, Team Roster WITH an Action Column, and the
-      per-member Member Controls (Edit Details, Reset Password, Deactivate /
-      Reactivate, and a two-step 🗑️ Delete/Remove confirmation).
-    - ⚙️ Carrier Settings: unchanged white-label branding form + live header.
-    - actor_user_id threaded through delete/deactivate to enforce guardrails.
-
-✅ app.py — hat-switcher REMOVED:
-    - Deleted the sidebar "Hat-Switcher" radio for Owners.
-    - Owners now route straight into the Dispatch view and open the tabbed
-      "Executive Dashboard" menu item (calls render_owner_portal as the routed
-      pane) with the real logged-in user's session_state user_id as
-      actor_user_id, so self-delete/self-deactivate is protected.
-
-✅ tests/test_end_to_end.py — 4 new automated tests:
-    - test_owner_deletes_account_preserving_historical_trip_logs: full delete
-      flow; user row removed while Load + RepairReport + DutyLog survive with
-      NULL driver references.
-    - test_deletion_guards_owner_role_self_and_cross_carrier: foreign-carrier
-      PermissionError, Owner-role PermissionError, self-deletion ValueError,
-      and clean not-found on second delete.
-    - test_password_override_binds_new_credential_and_drops_old: new password
-      verifies, old password is invalidated.
-    - test_executive_dashboard_tab_navigation_renders_all_four: streamlit
-      AppTest verifies all four Executive tabs render without exceptions.
-
-✅ Tasks.md — added [x] Task 6.5 (TASK-6.4) under Phase 6, updated Target
-   Deliverable + progress header to "5 / 5 (100%)".
-
-✅ Tests: venv/bin/python -m pytest -> 75 passed (1 httpx deprecation warning).
+$ venv/bin/python -m pytest
+76 passed, 1 warning in 11.05s
 ```
 
-### 🔢 Verification
-- `venv/bin/python -m pytest` → **75 passed** (1 warning only)
+### 🔒 Guardrails Honored
+- Native `bcrypt` only (no passlib).
+- All DB ops use `AsyncSession`.
+- Defensive try/except guards in the GPS component preserved — fallbacks return mock telemetry.
+- No secrets written to source or modules.
 
-### 🚀 Guardrail Confirmation
-- Strict `carrier_id` boundary checks on ALL delete/edit/reset actions (cross-carrier PermissionError tested).
-- Owner role and self-account are protected from deletion; historical trip/report/duty data preserved via FK detachment.
-- Native `bcrypt` only (`get_password_hash`); all DB ops via `AsyncSession`.
-- Git commit + `git push origin main` requested per `Tasks.md` guardrails.
+### 🚀 Deploy Command
+```bash
+git add . && git commit -m "feat(gps): add realistic mock telemetry engine and interactive demo map" && git push origin main
 ```

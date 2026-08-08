@@ -82,6 +82,8 @@ def _format_timestamp(ts):
 def _gps_summary(gps):
     if not gps:
         return "Location unavailable"
+    if gps.get("demo"):
+        return gps.get("label") or "Live Demo Telemetry (I-10 / LA Corridor)"
     return f"{gps['lat']:.5f}, {gps['lng']:.5f}"
 
 

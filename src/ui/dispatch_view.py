@@ -8,6 +8,7 @@ from sqlalchemy import select
 from src.core.database import AsyncSessionLocal
 from src.core.models import User
 from src.core.services import admin_reset_password
+from src.ui.gps_component import render_demo_map
 
 
 def run_async(coro):
@@ -125,6 +126,12 @@ def render_dispatch_view(carrier_id=1):
             st.error(str(ve))
         except Exception as ex:
             st.error(f"Failed to apply recovery password: {ex}")
+
+    # TASK-6.4: interactive demo telemetry map so Dispatchers can walk
+    # customers through live fleet positions even without browser GPS.
+    st.divider()
+    st.markdown("**🗺️ Live Dispatch Telemetry**")
+    render_demo_map()
 
 
 def main():

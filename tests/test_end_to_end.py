@@ -252,28 +252,88 @@ async def test_driver_briefing_eager_loads_status_logs():
     assert late_labels[0][0].status == "at_shipper"
 
 
-def test_gps_component_falls_back_on_load_failure(monkeypatch):
-    """FIX-5.9: GPS component must never raise or render a warning banner when
-    the custom iframe fails or the static frontend build is unavailable."""
+def test_gps_component_falls_back_to_demo_telemetry_on_load_failure(monkeypatch):
+    """FIX-5.9 + TASK-6.4: GPS component must never raise or render a warning
+    banner when the custom iframe fails, the static frontend build is missing,
+    or the browser geolocation returns nothing. Instead of a blank
+    "unavailable" state, it injects realistic mock telemetry centered on the
+    LA / I-10 / Inland Empire freight corridor (34.0522, -118.2437)."""
     from src.ui import gps_component as gc
 
     monkeypatch.setattr(gc, "_gps_location", None)
-    assert gc.gps_location(key="fallback_test") is None
+    gps = gc.gps_location(key="fallback_test")
+    assert gps is not None
+    assert gps["fallback"] is True
+    assert gps["label"] == gc.MOCK_TELEMETRY_LABEL
+    assert 33.9 <= gps["lat"] <= 34.2
+    assert -118.5 <= gps["lng"] <= -118.0
+    assert len(gps["vehicles"]) >= 4
 
     def _raise(*args, **kwargs):
         raise RuntimeError("simulated component load failure")
 
     monkeypatch.setattr(gc, "_gps_location", _raise)
-    assert gc.gps_location(key="fallback_test") is None
+    gps = gc.gps_location(key="fallback_test")
+    assert gps is not None and gps["fallback"] is True
 
     monkeypatch.setattr(gc, "_gps_location", lambda *a, **k: None)
-    assert gc.gps_location(key="fallback_test") is None
+    assert gc.gps_location(key="fallback_test")["fallback"] is True
 
     monkeypatch.setattr(gc, "_gps_location", lambda *a, **k: {})
-    assert gc.gps_location(key="fallback_test") is None
+    assert gc.gps_location(key="fallback_test")["fallback"] is True
 
     monkeypatch.setattr(gc, "_gps_location", lambda *a, **k: {"lat": 33.9, "lng": -118.4})
-    assert gc.gps_location(key="fallback_test") == {"lat": 33.9, "lng": -118.4}
+    live = gc.gps_location(key="fallback_test")
+    assert live["fallback"] is False
+    assert live["lat"] == 33.9
+    assert live["lng"] == -118.4
+    assert live["vehicles"] == []
+
+
+def test_mock_telemetry_generates_realistic_fleet_markers():
+    """TASK-6.4: the mock telemetry engine returns a realistic LA-corridor
+    fleet (TRK-001 In Transit, TRK-002 Docked, ...) with simulated speed,
+    heading, and status, plus the exact demo caption label. Same key ->
+    same deterministic payload across reruns."""
+    from src.ui.gps_component import (
+        MOCK_TELEMETRY_LABEL,
+        format_gps_summary,
+        mock_telemetry,
+    )
+
+    telemetry = mock_telemetry(key="demo_corridor")
+    assert telemetry["fallback"] is True
+    assert telemetry["label"] == MOCK_TELEMETRY_LABEL
+    assert MOCK_TELEMETRY_LABEL == "📍 GPS: Live Demo Telemetry (I-10 / LA Corridor)"
+    assert "Live Demo Telemetry" in format_gps_summary(telemetry)
+
+    vehicles = telemetry["vehicles"]
+    assert len(vehicles) >= 4
+
+    statuses = {v["status"] for v in vehicles}
+    assert "In Transit" in statuses
+    assert "Docked" in statuses
+
+    # Coordinates stay within the Southern California freight corridor.
+    assert all(33.5 <= v["lat"] <= 34.6 for v in vehicles)
+    assert all(-118.8 <= v["lon"] <= -117.0 for v in vehicles)
+
+    # Speeds and headings obey sane bounds per unit.
+    assert all(0 <= v["speed_mph"] <= 75 for v in vehicles)
+    assert all(0 <= v["heading_deg"] <= 360 for v in vehicles)
+
+    # Docked units are stationary with zero ground speed.
+    by_unit = {v["unit"]: v for v in vehicles}
+    assert any(v["speed_mph"] == 0 for v in vehicles if v["status"] == "Docked")
+    assert by_unit["TRK-001"]["status"] == "In Transit"
+    assert by_unit["TRK-002"]["status"] == "Docked"
+
+    # Deterministic: the same session key reproduces identical feeds.
+    replay = mock_telemetry(key="demo_corridor")
+    assert [(v["lat"], v["lon"]) for v in replay["vehicles"]] == [
+        (v["lat"], v["lon"]) for v in vehicles
+    ]
+    assert replay["lng"] == telemetry["lng"]
 
 
 @pytest.mark.asyncio
