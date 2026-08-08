@@ -553,6 +553,54 @@ async def create_dispatched_load(
     return db_load
 
 
+async def create_authorized_load(
+    session: AsyncSession,
+    *,
+    human_authorized: bool = False,
+    load_number: str,
+    load_weight: int,
+    commodity: str,
+    pickup_ref: str,
+    delivery_ref: str,
+    dispatcher_notes: str = None,
+    assigned_driver_id: int = None,
+    assigned_vehicle_id: int = None,
+    pickup_address: str = None,
+    delivery_address: str = None,
+    target_pickup_at=None,
+    target_delivery_at=None,
+) -> Load:
+    """Human-in-the-Loop (HITL) guarded load commit (Task TASK-6.5).
+
+    Parsed FreightSlip rate-confirmation data must NEVER be committed to the
+    database automatically. This guardrail requires an explicit
+    ``human_authorized=True`` flag (only set after an operator clicks the
+    'Authorize & Commit Load' button and inspects the auto-filled fields).
+    Without authorization it raises ``PermissionError`` and the transaction
+    is left untouched, preventing zero-click database insertions on PDF upload.
+    """
+    if not human_authorized:
+        raise PermissionError(
+            "Human-in-the-loop authorization required. Verify the extracted "
+            "FreightSlip rate confirmation data before committing the load."
+        )
+    return await create_dispatched_load(
+        session=session,
+        load_number=load_number,
+        load_weight=load_weight,
+        commodity=commodity,
+        pickup_ref=pickup_ref,
+        delivery_ref=delivery_ref,
+        dispatcher_notes=dispatcher_notes,
+        assigned_driver_id=assigned_driver_id,
+        assigned_vehicle_id=assigned_vehicle_id,
+        pickup_address=pickup_address,
+        delivery_address=delivery_address,
+        target_pickup_at=target_pickup_at,
+        target_delivery_at=target_delivery_at,
+    )
+
+
 async def dispatch_load_with_plugins(
     session: AsyncSession,
     *,

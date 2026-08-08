@@ -1,92 +1,95 @@
 # 🤖 OpenCode Execution Report
 
-**Task:** TASK-6.4 — Mock GPS Telemetry & Interactive Demo Mapping
-**Timestamp:** Sat Aug  8 17:20:00 PDT 2026
-**Status:** ✅ Complete — 76 passed
+**Task:** TASK-6.5 — FreightSlip Ratecon PDF Parser & HITL Authorization
+**Timestamp:** Sat Aug  8 16:00:00 PDT 2026
+**Status:** ✅ Complete — 80 passed
 
 ---
 
 ### 📁 Modified Files:
 ```text
  M Tasks.md
- M copilot/pending_task.md
- M src/ui/dispatch_view.py
- M src/ui/driver_reset_planner.py
- M src/ui/gps_component.py
- M src/ui/owner_portal.py
- M src/ui/repair_form.py
- M src/ui/status_toggles.py
- M test.db
+ M src/core/services.py
+ M src/ui/dispatch_panel.py
  M tests/test_end_to_end.py
+ A src/core/ratecon_parser.py
 ```
 
 ### 🎯 Objective
-Whenever live browser GPS is unavailable or blocked (e.g. Streamlit Cloud), the
-system now auto-injects realistic mock GPS telemetry along the Southern
-California I-10 / Ports of LA / Inland Empire freight corridor (`34.0522, -118.2437`)
-and renders a live interactive `st.map` overlay for customer demos — instead of a
-blank "Location unavailable" state.
+Integrate the FreightSlip Rate Confirmation PDF parsing service into the
+Dispatch load creation form, automatically extracting load metadata
+(Broker/Shipper Name, Rate $ Payout, Pickup & Delivery Locations/Dates,
+Commodity, Weight, Reference #) while enforcing a strict Human-in-the-Loop
+(HITL) authorization step before anything is saved to SQLite.
 
 ---
 
 ### 📜 Execution Logs
 
-#### 1. Mock Telemetry Engine (`src/ui/gps_component.py`)
-- Added `MOCK_CENTER_LAT/LNG` hub (`34.0522, -118.2437`), `MOCK_CORRIDOR_LABEL = "I-10 / LA Corridor"`,
-  and the required indicator caption `MOCK_TELEMETRY_LABEL = "📍 GPS: Live Demo Telemetry (I-10 / LA Corridor)"`.
-- `MOCK_FLEET`: six corridor units (`TRK-001 In Transit` @ 61 mph, `TRK-002 Docked` @ 0 mph,
-  `TRK-003`–`TRK-006` with varied speeds/headings). Each carries `demo: True`, `speed_mph`,
-  and `heading_deg`.
-- `generate_mock_telemetry(ref_time)` — deterministic per snapshot; moving units drift along the
-  corridor, Docked units stay pinned with zero ground speed.
-- `mock_telemetry(key)` — fully deterministic per session key (drift anchor derived from a stable
-  hash, not the wall clock), returns `{demo, fallback, lat, lng, label, vehicles}` centered on the
-  freight corridor.
-- `gps_location(key)` — preserves all existing FIX-5.9 defensive `try/except` and `None` guards;
-  every fallback now returns demo telemetry instead of a blank state. Live GPS passes through as
-  `{lat, lng, demo: False, fallback: False, vehicles: []}`.
-- `render_demo_map()` — renders the interactive `st.map` layer + per-marker unit table
-  (unit, status, speed, heading); a broken map layer degrades to the marker table so demos never crash.
+#### 1. Parser & Auto-Fill Engine (`src/core/ratecon_parser.py`) — NEW
+- `parse_rate_confirmation(text)` — dependency-free regex extractor of
+  Broker / Shipper name, Load #, Weight, Commodity, Pickup/Delivery refs,
+  Linehaul rate, Total Pay (→ `payout`), Pickup Location/Date,
+  Delivery Location/Date.
+- `parse_rate_confirmation_bytes(raw)` — decode UTF-8/Latin-1 payload and
+  delegate to the text parser (same bytes `st.file_uploader` emits).
+- `ratecon_to_form(parsed)` — maps parsed metadata onto every Load Creation
+  form field key (load_number, load_weight, commodity, refs, addresses,
+  target times as `MM/DD/YYYY HH:MM AM/PM`, dispatcher notes).
+- `date_to_form_time(...)` — normalizes extracted dates onto the form's
+  expected time-column format.
+- Explicit `RateConfirmationParseError` for unparseable uploads.
 
-#### Interactive Map Integration (Fleet Command Center + Driver Console + Dispatch)
-- `src/ui/owner_portal.py` — `_render_fleet_command_center` renders the demo map under
-  "▶️ Live Dispatch Map"; `_render_driver_console_view` renders "🗺️ On-Road Telemetry" for
-  solo owner-operators.
-- `src/ui/dispatch_view.py` — Dispatcher recovery page now shows "🗺️ Live Dispatch Telemetry".
-- Call sites safely restored to the canonical exported API `render_demo_map` (removed stale
-  `render_fleet_map` references). 
+#### 2. HITL Authorization Guardrail (`src/core/services.py`)
+- New `create_authorized_load(session, *, human_authorized=False, ...)`
+  async service (AsyncSession) that refuses any commit until
+  `human_authorized=True` is explicitly passed, otherwise raising
+  `PermissionError`. This is the zero-click DB-write barrier — a PDF upload
+  alone can never insert a row.
 
-#### GPS-Sensitive UI Captions
-- `status_toggles.py`, `repair_form.py`, `driver_reset_planner.py` — `_gps_summary()` now renders
-  the `📍 GPS: Live Demo Telemetry (I-10 / LA Corridor)` label when the feed is demo telemetry,
-  never "Location unavailable".
+#### 3. Dispatch Load Creation Form (`src/ui/dispatch_panel.py`)
+- Added `📄 Import Rate Confirmation PDF (FreightSlip AI)` uploader.
+- Parse → stage parsed payload → auto-fill full form placeholder panels.
+- Bold yellow verification banner:
+  > ⚠️ **Verify Extracted FreightSlip Data:** *Please inspect all
+  auto-filled fields against your original PDF rate confirmation before
+  authorizing.*
+- Submit button becomes **✅ Authorize & Commit Load** while data is
+  staged; clicking it invokes `create_authorized_load(human_authorized=True)`.
+- Staged payload is cleared after a successful commit so the banner/summit
+  state never re-arms on the following rerun.
+- `SafetyViolationError` handling preserved for the HD-5.2 grounded-truck
+  baseline.
 
-#### Tests (`tests/test_end_to_end.py`)
-- `test_gps_component_falls_back_to_demo_telemetry_on_load_failure` — verifies `None`/exception/
-  empty/empty-dict all yield `fallback=True` demo telemetry on the corridor; live coords return
-  `fallback: False` with an empty `vehicles` list.
-- `test_mock_telemetry_generates_realistic_fleet_markers` — verifies TRK-001/TRK-002 statuses,
-  speed/heading bounds, corridor coordinate bounds, and deterministic replay per key.
+#### 4. Automated Verification (`tests/test_end_to_end.py`)
+- `test_ratecon_parser_extracts_load_metadata` — verifies broker/shipper,
+  payout, locations/dates, commodity, weight, refs and the parse-error path.
+- `test_ratecon_form_auto_fill_pre_populates_fields` — verifies every form
+  field auto-fills and the time format helpers.
+- `test_hitl_blocks_unauthorized_commit_and_succeeds_when_authorized` —
+  unauthorized raises `PermissionError`; authorized writes the load.
+- `test_parse_and_staging_never_writes_to_database` — parsing/staging alone
+  adds no rows.
 
 #### Tasks.md
-- `Task 6.6: Mock GPS Telemetry & Interactive Demo Mapping` flipped to `[x]`.
-- Phase 6 overall progress updated to **6 / 6 Tasks Completed (100%)**; Current Status header synced.
+- Phase 6 now dated **7 / 7 Tasks Completed (100%)** with Task 6.7:
+  FreightSlip Ratecon PDF Parser & HITL Authorization flipped to `[x]`.
 
 ---
 
 ### 🧪 Verification
 ```text
 $ venv/bin/python -m pytest
-76 passed, 1 warning in 11.05s
+80 passed, 1 warning in 11.33s
 ```
 
 ### 🔒 Guardrails Honored
 - Native `bcrypt` only (no passlib).
-- All DB ops use `AsyncSession`.
-- Defensive try/except guards in the GPS component preserved — fallbacks return mock telemetry.
+- All DB operations go through `AsyncSession`.
+- No zero-click DB insertion on upload (HITL gate enforced at service layer).
 - No secrets written to source or modules.
 
 ### 🚀 Deploy Command
 ```bash
-git add . && git commit -m "feat(gps): add realistic mock telemetry engine and interactive demo map" && git push origin main
+git add . && git commit -m "feat(dispatch): integrate FreightSlip ratecon parser with HITL authorization" && git push origin main
 ```

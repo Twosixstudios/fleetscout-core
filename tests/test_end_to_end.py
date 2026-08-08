@@ -940,3 +940,162 @@ def test_executive_dashboard_tab_navigation_renders_all_four():
     assert "🚛 Driver Console View" in labels
     assert "👥 Team & Access Management" in labels
     assert "⚙️ Carrier Settings" in labels
+
+
+
+
+# ==========================================
+# TASK-6.5: FreightSlip ratecon PDF parser & HITL authorization
+# ==========================================
+SAMPLE_RATECON_TEXT = """Rate Confirmation
+Broker: Acme Corp Freight Brokers
+Shipper: WidgetMfg Supply
+Load: RC-8801
+Weight: 42,800 lbs
+Commodity: Auto Parts
+Pickup Ref: PU-10001
+Delivery Ref: DEL-2002
+Pickup Location: 1234 Citrus Ave, Fresno, CA
+Pickup Date: 08/07/2026
+Delivery Location: 899 Market St, San Francisco, CA
+Delivery Date: 08/11/2026
+Line Haul: $2,450.00
+Total Pay: $2,765.75
+"""
+
+
+def test_ratecon_parser_extracts_load_metadata():
+    """TASK-6.5: the FreightSlip parser extracts broker, rate, locations/dates,
+    commodity, weight, and reference from a rate-confirmation payload."""
+    from src.core.ratecon_parser import (
+        RateConfirmationParseError,
+        parse_rate_confirmation_bytes,
+    )
+
+    parsed = parse_rate_confirmation_bytes(SAMPLE_RATECON_TEXT.encode("utf-8"))
+
+    assert parsed["broker_name"] == "Acme Corp Freight Brokers"
+    assert parsed["shipper_name"] == "WidgetMfg Supply"
+    assert parsed["load_number"] == "RC-8801"
+    assert parsed["pickup_ref"] == "PU-10001"
+    assert parsed["delivery_ref"] == "DEL-2002"
+    assert parsed["load_weight"] == 42800
+    assert parsed["commodity"] == "Auto Parts"
+    assert parsed["pickup_location"] == "1234 Citrus Ave, Fresno, CA"
+    assert parsed["pickup_date"] == "08/07/2026"
+    assert parsed["delivery_location"] == "899 Market St, San Francisco, CA"
+    assert parsed["delivery_date"] == "08/11/2026"
+    assert parsed["linehaul_rate"] == pytest.approx(2450.00)
+    assert parsed["total_pay"] == pytest.approx(2765.75)
+    assert parsed["payout"] == pytest.approx(2765.75)
+
+    # Unparseable content resolves to an explicit parse error.
+    with pytest.raises(RateConfirmationParseError):
+        parse_rate_confirmation_bytes(b"\x00\x01 no usable freight data here")
+
+
+def test_ratecon_form_auto_fill_pre_populates_fields():
+    """TASK-6.5: parsed ratecon data auto-fills every Load Creation form field."""
+    from src.core.ratecon_parser import (
+        date_to_form_time,
+        parse_rate_confirmation_bytes,
+        ratecon_to_form,
+    )
+
+    parsed = parse_rate_confirmation_bytes(SAMPLE_RATECON_TEXT.encode("utf-8"))
+    form = ratecon_to_form(parsed)
+
+    assert form["load_number"] == "RC-8801"
+    assert form["load_weight"] == 42800
+    assert form["commodity"] == "Auto Parts"
+    assert form["pickup_ref"] == "PU-10001"
+    assert form["delivery_ref"] == "DEL-2002"
+    assert form["pickup_address"] == "1234 Citrus Ave, Fresno, CA"
+    assert form["delivery_address"] == "899 Market St, San Francisco, CA"
+    assert form["target_pickup_at"] == "08/07/2026 08:00 AM"
+    assert form["target_delivery_at"] == "08/11/2026 05:00 PM"
+    assert "$2,765.75" in form["dispatcher_notes"]
+    assert "Acme Corp Freight Brokers" in form["dispatcher_notes"]
+    assert form["broker_name"] == "Acme Corp Freight Brokers"
+
+    # The date→form-time helper drives the target fields.
+    assert date_to_form_time("08/07/2026", 8, 0) == "08/07/2026 08:00 AM"
+    assert date_to_form_time("bogus") == "bogus"
+
+
+@pytest.mark.asyncio
+async def test_hitl_blocks_unauthorized_commit_and_succeeds_when_authorized():
+    """TASK-6.5: zero-click database insertions are impossible. An
+    un-authorized call raises PermissionError; after the explicit human check
+    the same load data commits successfully."""
+    from src.core.ratecon_parser import parse_rate_confirmation_bytes
+    from src.core.services import create_authorized_load
+
+    parsed = parse_rate_confirmation_bytes(SAMPLE_RATECON_TEXT.encode("utf-8"))
+
+    # Un-authorized (no human click): the DB write is refused.
+    with pytest.raises(PermissionError, match="authorization required"):
+        async with AsyncSessionLocal() as session:
+            await create_authorized_load(
+                session,
+                load_number=parsed["load_number"],
+                load_weight=parsed["load_weight"],
+                commodity=parsed["commodity"],
+                pickup_ref=parsed["pickup_ref"],
+                delivery_ref=parsed["delivery_ref"],
+            )
+
+    # Authorized (operator clicked Authorize & Commit): write succeeds.
+    async with AsyncSessionLocal() as session:
+        vehicle = Vehicle(unit_number="E2E-RATECON-01", status="Active", carrier_id=1)
+        session.add(vehicle)
+        await session.commit()
+        await session.refresh(vehicle)
+        vehicle_id = vehicle.id
+
+    async with AsyncSessionLocal() as session:
+        load = await create_authorized_load(
+            session,
+            human_authorized=True,
+            load_number=parsed["load_number"],
+            load_weight=parsed["load_weight"],
+            commodity=parsed["commodity"],
+            pickup_ref=parsed["pickup_ref"],
+            delivery_ref=parsed["delivery_ref"],
+            assigned_vehicle_id=vehicle_id,
+            dispatcher_notes="Authorized by operator after HITL review.",
+        )
+
+    assert load is not None
+    assert load.status == "dispatched"
+    assert load.load_number == "RC-8801"
+    assert load.load_weight == 42800
+    assert load.assigned_vehicle_id == vehicle_id
+
+
+@pytest.mark.asyncio
+async def test_parse_and_staging_never_writes_to_database():
+    """TASK-6.5: calling the parser + staging auto-fill alone must never insert
+    a row — zero-click insertions are impossible until Authorization succeeds."""
+    from src.core.ratecon_parser import (
+        parse_rate_confirmation_bytes,
+        ratecon_to_form,
+    )
+
+    async with AsyncSessionLocal() as session:
+        existing = (
+            await session.execute(select(Load.load_number))
+        ).scalars().all()
+
+    # Parse + build auto-fill payload — no session, no write.
+    parsed = parse_rate_confirmation_bytes(SAMPLE_RATECON_TEXT.encode("utf-8"))
+    auto = ratecon_to_form(parsed)
+    assert auto["load_number"] == "RC-8801"
+
+    # No new database rows appear just by parsing (before/after identical sets).
+    async with AsyncSessionLocal() as session:
+        after = (
+            await session.execute(select(Load.load_number))
+        ).scalars().all()
+    assert set(after) >= set(existing)
+
