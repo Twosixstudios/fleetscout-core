@@ -1,115 +1,146 @@
 # 🤖 OpenCode Execution Report
 
-**Task:** TASK-6.7 — Owner Ratecon Profitability Calculator & Quick Load Analyzer
-**Timestamp:** Sat Aug  8 18:00:00 PDT 2026
-**Status:** ✅ Complete — 90 passed
+**Task:** TASK-7.1 — Ratecon AI Parser Integration, Master Dev Seeder & HOS Integrity
+**Timestamp:** Sat Aug  8 19:15:00 PDT 2026
+**Status:** ✅ Complete — 98 passed
 
 ---
 
 ### 📁 Modified Files:
 ```text
+ M CLAUDE.md
  M Tasks.md
- M src/core/services.py
+ M requirements.txt
+ M src/core/ratecon_parser.py
+ M src/core/seed.py
+ M src/ui/dispatch_view.py
+ M src/ui/driver_reset_planner.py
  M src/ui/owner_portal.py
  M tests/test_end_to_end.py
 ```
 
 ### 🎯 Objective
-Build a "📈 Load Profitability & ROI Analyzer" inside the Owner Portal that
-combines parsed FreightSlip Ratecon data with the live EIA fuel service and
-carrier cost baselines to instantly display net margin, RPM, CPM, and a
-color-coded profit decision badge.
+1. Port the dedicated `ratecon-ai-parser` Gemini extraction engine into
+   `src/core/ratecon_parser.py`.
+2. Guarantee a Master Dev Account (`admin@twosix.com` / `DevMaster2026!` /
+   Owner) + primary Carrier exist on every startup (empty or non-empty DB).
+3. Remove interactive Duty Status toggles from Owner/Dispatcher views and
+   convert HOS tracking to strictly READ-ONLY availability clocks.
 
 ---
 
 ### 📜 Execution Logs
 
-#### 1. Profitability Calculation Engine (`src/core/services.py`)
-- Added `calculate_load_profitability(gross_payout, total_miles, mpg,
-  fuel_price, driver_cpm, fixed_cpm_reserve=0.15) -> dict`:
-  - `fuel_cost = (total_miles / mpg) * fuel_price`
-  - `driver_cost = total_miles * driver_cpm`
-  - `overhead_reserve = total_miles * fixed_cpm_reserve`
-  - `total_cost = fuel_cost + driver_cost + overhead_reserve`
-  - `net_profit = gross_payout - total_cost`
-  - `rpm = gross_payout / total_miles`, `cpm = total_cost / total_miles`
-  - `profit_margin_pct = (net_profit / gross_payout) * 100`
-  - Badge status: `🟢 Highly Profitable` (≥ 20%), `🟡 Marginal` (5%–19%),
-    `🔴 Unprofitable` (< 5%).
-  - **Division-by-zero guardrail:** zero miles, zero MPG, or zero payout never
-    raise — the calculator reports `valid=False`, zeroed derived money figures,
-    and the Unprofitable badge so the UI warns the owner.
-- Constants exported: `PROFIT_HIGHLY_PROFITABLE_STATUS`,
-  `PROFIT_MARGINAL_STATUS`, `PROFIT_UNPROFITABLE_STATUS`, threshold margins.
+#### 1. Ratecon AI Parser Porting (`src/core/ratecon_parser.py`)
+- Ported the standalone `ratecon-ai-parser` `schema.py` data model as the
+  Pydantic `RateConfirmation` model, enriched with `shipper_name`,
+  `load_weight`, `pickup_date`, `delivery_date`, `pickup_ref`, `delivery_ref`
+  so the AI engine covers the full dispatch-form contract.
+- Ported `parser.py`'s Gemini vision extraction as
+  `extract_rate_confirmation_ai(pdf_bytes, api_key=None)` using
+  `gemini-flash-latest`, lazy `google.genai` import (offline-safe), and a
+  `parse_rate_con_pdf()` compatibility alias matching the original project's
+  public API.
+- Added `rate_confirmation_to_dict()` to map `RateConfirmation` objects into
+  the same flat dicts the regex engine returns.
+- `parse_rate_confirmation_bytes()` is now **AI-first, regex-fallback**: with a
+  `GEMINI_API_KEY` + client it extracts straight off the PDF
+  (`provider="ratecon_ai"`); any missing key/network/AI failure degrades to the
+  proven regex OCR engine (`provider="ratecon_ocr"`) — never an app crash.
+- `requirements.txt` gained `google-genai==2.12.1` (version verified against the
+  standalone project's venv).
 
-#### 2. Quick Load Analyzer UI (`src/ui/owner_portal.py`)
-- New 5th Executive Dashboard tab **「📈 Quick Load Analyzer」** wired through
-  `render_owner_portal()` (existing 4 tabs untouched).
-- `_render_quick_load_analyzer(carrier, carrier_id)`:
-  - **Ratecon PDF/TXT uploader** (FreightSlip integration via
-    `parse_rate_confirmation_bytes`) that pre-fills the Gross Payout field; the
-    user can also type payout / trip distance manually.
-  - **Live fuel pre-population** from `get_effective_fuel_cost()` (EIA
-    benchmark minus the carrier fuel-card discount) and carrier baselines
-    `default_mpg` + `default_driver_cpm`, rendered as a live benchmark caption.
-  - **Financial Metrics Card:** Gross Payout vs. Total Costs breakdown (Fuel,
-    Driver, Overhead with per-mile figures), Net Profit ($), RPM ($/mi), CPM
-    ($/mi), Profit Margin %, and a high-visibility color-coded Profitability
-    Decision Badge (`st.success`/`st.warning`/`st.error`).
-  - Parse failures degrade to a `st.warning` — never an app crash.
+#### 2. Master Dev Account Startup Seeder (`src/core/seed.py`)
+- `seed_database()` now seeds **5** accounts: the Master Dev Account
+  (`admin@twosix.com` / `DevMaster2026!` / `Owner` / carrier 1) plus
+  `owner@fleetscout.com`, `dispatcher@fleetscout.com`, `driver@fleetscout.com`,
+  and `driver@twosix.com` (all demo accounts keep `password123`) — all
+  bcrypt-hashed via native `bcrypt`, get-or-create by unique email.
+- `ensure_database_seeded()` (wired into `app.py` `init_db()` which still
+  auto-runs on every Streamlit boot) now ALSO runs an idempotent guard on
+  **non-empty** databases: the default Carrier and Master Dev Account are
+  guaranteed to exist without wiping data or raising unique/primary-key errors.
+- Guardrail verified: deleting `admin@twosix.com` from a populated DB and
+  re-running the seeder recreates it with the exact credentials.
 
-#### 3. Automated Verification (`tests/test_end_to_end.py`)
-- `test_profitability_math_is_accurate` — the documented formulas resolve
-  exactly (fuel/driver/overhead, total, net, RPM, CPM, margin).
-- `test_profitability_status_badge_thresholds` — boundary badges for the 20%
-  and 5% thresholds (exactly 20% = Highly Profitable, 5%–19% = Marginal,
-  < 5% = Unprofitable).
-- `test_profitability_guards_division_by_zero` — zero miles / MPG / payout
-  return `valid=False` + Unprofitable instead of raising.
-- `test_quick_load_analyzer_renders_financial_metrics_card` — the analyzer tab
-  renders the Financial Metrics Card (Net Profit, Margin, RPM, CPM) with an
-  injected deterministic fuel benchmark and no app exception.
-- Updated the executive tab-navigation test to assert all **five** tabs render
-  (Fleet / Driver / Team / Carrier / 📈 Quick Load Analyzer) with the EIA fuel
-  service monkeypatched so rendering stays offline-friendly.
-- Full suite: `90 passed, 1 warning in ~11s`.
+#### 3. FMCSA Driver HOS Integrity Guardrail (`src/ui/*`)
+- `driver_reset_planner.py`: extracted the 10-hour availability block into a
+  shared `_render_availability_clock()`, added FMCSA limit constants
+  (11h driving / 14h shift / 10h sleeper), and added
+  `render_hos_read_only(driver_id, driver_name)` which renders only **Read-Only
+  Status Badges** + the availability clock with **no** interactive duty
+  buttons. `render_driver_reset_planner()` gained a `read_only=True` passthrough
+  for callers.
+- `owner_portal.py`: the Owner `🚛 Driver Console View` now calls
+  `render_hos_read_only()` instead of the interactive
+  `render_driver_reset_planner()` — no `Driving` / `On Duty` / `Off Duty` /
+  `Sleeper` toggles anywhere in the Executive Dashboard.
+- `dispatch_view.py`: added a **"Driver Hours of Service (Read-Only)"** board
+  rendering per-driver availability badges/clocks — Dispatchers can view driver
+  hours but can never mutate a duty log.
+- Driver's own mobile console (`app.py` `driver_console()`) intentionally
+  KEEPS the interactive duty toggles so drivers still self-log HOS.
 
-#### Tasks.md
-- Phase 6 now **9 / 9 Tasks Completed (100%)** with
-  **Task 6.9: Owner Ratecon Profitability Calculator & Quick Load Analyzer
-  (`TASK-6.7`)** flipped to `[x]`.
-- `Current Status` header (+ the Phase 6 section) progress synced to `9 / 9`.
-- Active Phase remains Phase 6 — final roadmap phase, no Phase 7 exists yet.
+#### 4. Automated Verification (`tests/test_end_to_end.py`)
+- `test_startup_self_heals_empty_database` updated: fresh empty DB → 5 seeded
+  accounts including `admin@twosix.com`; authority check on Master Dev role +
+  `DevMaster2026!` password; idempotent re-seed stays a no-op.
+- `test_master_dev_account_reseeded_when_missing_on_existing_db` — deleting the
+  master account and re-running the seeder restores it, proving the
+  "never crash if already exists" guard + non-empty DB auto-seeding.
+- `test_ported_ratecon_schema_maps_to_form_dict` — ported `RateConfirmation`
+  → `rate_confirmation_to_dict()` resolves every required field exactly.
+- `test_ai_ratecon_parser_uses_regex_fallback_without_api_key` /
+  `test_ai_ratecon_parser_prefers_gemini_when_active` /
+  `test_ai_ratecon_parser_degrades_into_regex_upon_failure` — AI-first wiring
+  verified offline (API-key gating + graceful degradation).
+- `test_driver_console_keeps_interactive_duty_toggles` — driver view still
+  shows `Driving`/`Off Duty`/`Sleeper Berth`.
+- `test_hos_read_only_planner_removes_interactive_duty_toggles` —
+  `render_hos_read_only` renders 11h/14h/10h badges with NO duty buttons.
+- `test_owner_console_has_readonly_hos_without_duty_toggles` — full
+  `render_owner_portal()` render has zero duty-status buttons.
+
+#### Tasks.md / CLAUDE.md
+- New **Phase 7** section added — Task 7.1 flipped to `[x]`.
+- `Current Status` header updated: Active Phase Phase 7 — **1 / 1 Tasks
+  Completed (100%)**.
+- CLAUDE.md Active Phase advanced to Phase 7.
 
 ---
 
 ### 🧪 Verification
 ```text
 $ venv/bin/python -m pytest
-90 passed, 1 warning in 11.60s
+98 passed, 1 warning in 12.46s
 ```
 
 ### ✅ Full Requirement Checklist (re-verified)
-- [x] `calculate_load_profitability()` in `src/core/services.py` with all
-      documented formulas and badge thresholds.
-- [x] `📈 Quick Load Analyzer` tab in the Owner Portal (`src/ui/owner_portal.py`).
-- [x] Ratecon PDF uploader + manual Gross Payout / Trip Distance inputs
-      (FreightSlip integration reusing the TASK-6.5 parser).
-- [x] Live fuel pre-population from `fuel_service.py` and carrier defaults
-      (`default_mpg`, `default_driver_cpm`, `carrier_fuel_discount`).
-- [x] High-visibility Financial Metrics Card: cost breakdown + Net Profit +
-      RPM + CPM + color-coded Profitability Decision Badge.
-- [x] Division-by-zero guardrail on zero miles / MPG / payout.
-- [x] End-to-end maths, threshold, and UI-rendering tests — `90 passed`.
+- [x] Ported `ratecon-ai-parser` Gemini engine (`RateConfirmation` schema +
+      `parser.py` logic) into `src/core/ratecon_parser.py`.
+- [x] Ratecon PDF uploads extract broker/shipper, rate/total pay, pickup &
+      delivery locations/dates, weight, commodity, and load refs (AI-first,
+      regex fallback; graceful degradation).
+- [x] `init_db()` auto-runs on Streamlit startup; guarantees primary Carrier
+      (`Two-Six Logistics LLC`) + Master Dev Account
+      (`admin@twosix.com` / `DevMaster2026!` / Owner) on every reboot (empty
+      or non-empty DB, idempotent, never raises when they exist).
+- [x] Demo accounts (`owner@fleetscout.com`, `dispatcher@fleetscout.com`,
+      `driver@fleetscout.com`) still auto-seeded — suites stay green.
+- [x] Interactive Duty Status toggles removed from Owner + Dispatcher views;
+      HOS rendered strictly as read-only 11h / 14h / 10h badges & availability
+      clocks. Driver mobile console keeps interactive toggles.
+- [x] Unit tests verify `admin@twosix.com` auto-seeding on fresh startup +
+      pytest coverage of the ported `ratecon-ai-parser` logic — `98 passed`.
 
 ### 🔒 Guardrails
 - Native `bcrypt` only (no passlib) — untouched.
-- All DB operations remain `AsyncSession`-based; no new schema changes.
-- The calculator is pure and dependency-free (stdlib `float` math only).
-- No network calls from the UI at rest: fuel benchmark only queried once via the
-  cached `get_effective_fuel_cost()`; AppTest uses a monkeypatched benchmark.
+- All DB ops remain `AsyncSession`-based; schema unchanged (no migration).
+- `google.genai` imported lazily; no runtime crash without the package or key.
+- The demo-account proportion is untouched (also `driver@twosix.com` retained).
+- No network calls from the UI at rest (fuel + Gemini both offline-safe).
 
 ### 🚀 Deploy Command
 ```bash
-git add . && git commit -m "feat(owner): add quick load analyzer and ratecon profitability calculator" && git push origin main
+git add . && git commit -m "feat(parser): integrate ratecon-ai-parser engine, seed master dev account, enforce read-only HOS" && git push origin main
 ```

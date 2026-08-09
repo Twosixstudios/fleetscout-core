@@ -17,7 +17,7 @@ from src.core.services import (
     update_team_member,
 )
 from src.ui.driver_briefing import render_driver_briefing
-from src.ui.driver_reset_planner import render_driver_reset_planner
+from src.ui.driver_reset_planner import render_hos_read_only
 from src.ui.gps_component import render_demo_map
 from src.ui.repair_form import render_repair_form
 from src.ui.status_toggles import render_status_toggles
@@ -292,8 +292,9 @@ def _render_driver_console_view(actor_user_id):
     """🚛 Driver Console View for solo owner-operators."""
     st.markdown("### 🚛 Driver Console View")
     st.caption(
-        "Solo owner-operator mode: your briefing, status toggles, repair forms, "
-        "and HOS duty clock all in one place."
+        "Solo owner-operator mode: your briefing, status toggles, and repair "
+        "forms in one place. HOS hours are shown strictly read-only (FMCSA "
+        "availabilities) — driver log edits only happen from the Driver mobile view."
     )
 
     if not actor_user_id:
@@ -306,7 +307,7 @@ def _render_driver_console_view(actor_user_id):
     render_driver_briefing(driver_id=actor_user_id, driver_name="Owner-Operator")
     render_status_toggles(driver_id=actor_user_id, driver_name="Owner-Operator")
     render_repair_form(driver_id=actor_user_id, driver_name="Owner-Operator")
-    render_driver_reset_planner(driver_id=actor_user_id, driver_name="Owner-Operator")
+    render_hos_read_only(driver_id=actor_user_id, driver_name="Owner-Operator")
 
 
 def _render_carrier_settings(carrier, carrier_id):

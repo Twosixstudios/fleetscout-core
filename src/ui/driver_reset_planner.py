@@ -16,6 +16,11 @@ from src.ui.gps_component import gps_location
 DUTY_STATES = DutyLog.DUTY_STATES
 REST_HOURS = DutyLog.REST_HOURS
 
+# TASK-7.1: FMCSA statutory limits rendered as READ-ONLY badges.
+HOS_DRIVING_WINDOW_HOURS = 11
+HOS_SHIFT_WINDOW_HOURS = 14
+HOS_SLEEPER_REST_HOURS = 10
+
 # FMCSA compliance disclaimer shown whenever the duty clock is rendered.
 DISCLAIMER = (
     "DISCLAIMER: This tracker is provided for internal dispatch estimations and "
@@ -87,7 +92,77 @@ def _format_remaining(seconds):
     return f"{hours}h {minutes:02d}m {secs:02d}s"
 
 
-def render_driver_reset_planner(driver_id, driver_name=None):
+def _render_availability_clock(summary, latest=None):
+    """Render the 10-hour availability countdown block (shared read-only logic)."""
+    latest = latest if latest is not None else summary["latest_log"]
+
+    st.markdown("**🛏️ Sleeper Rest Timer / 10-Hour Availability**")
+    if latest is None:
+        st.info("No duty logged yet. Select a duty state above to start the clock.")
+    elif latest.target_available_at is None:
+        st.caption("Latest duty state logged — no rest countdown is active.")
+        st.markdown(f"`{latest.duty_state}` — {_format_timestamp(latest.created_at)}")
+    else:
+        remaining = summary["seconds_remaining"]
+        if summary["is_resting"]:
+            st.markdown(
+                f"> **Resting since:** {_format_timestamp(summary['off_duty_started_at'])}"
+            )
+            st.markdown(
+                f"> **Available to drive in:** :green[**{_format_remaining(remaining)}**]"
+            )
+            st.markdown(
+                f"> **Availability return at:** {_format_timestamp(summary['target_available_at'])}"
+            )
+            st.progress(
+                min(1.0, (REST_HOURS * 3600 - remaining) / (REST_HOURS * 3600))
+                if (REST_HOURS * 3600) > 0
+                else 0.0,
+                text="Rest progress",
+            )
+        else:
+            st.success("You are fully rested and available to drive! 🚛")
+
+
+def render_hos_read_only(driver_id, driver_name=None):
+    """TASK-7.1: FMCSA read-only HOS status badges & availability clock.
+
+    Strictly read-only — the interactive Duty Status toggles (Driving /
+    On Duty / Off Duty / Sleeper) are intentionally absent, so Owner and
+    Dispatcher views can only *view* driver hour availability for scheduling,
+    never modify a driver's logbook directly.
+    """
+    st.subheader("🕐 Driver Hours of Service (Read-Only)")
+    st.caption(
+        "FMCSA limits displayed for scheduling visibility only — no driver "
+        "log edits are allowed from this view."
+    )
+    st.warning(DISCLAIMER)
+
+    summary = _load_summary(driver_id)
+    latest = summary["latest_log"]
+
+    b1, b2, b3, b4 = st.columns(4)
+    b1.metric("Driving Window", f"{HOS_DRIVING_WINDOW_HOURS}h / 24h")
+    b2.metric("Shift Window", f"{HOS_SHIFT_WINDOW_HOURS}h / 24h")
+    b3.metric("Sleeper Rest", f"{HOS_SLEEPER_REST_HOURS}h")
+    b4.metric("Duty Status", latest.duty_state if latest else "No duty logged")
+
+    st.divider()
+    _render_availability_clock(summary, latest)
+
+    if latest:
+        st.markdown(
+            f"**Latest duty log:** `{latest.duty_state}`"
+            f" — {_format_timestamp(latest.created_at)}"
+        )
+
+
+def render_driver_reset_planner(driver_id, driver_name=None, read_only=False):
+    if read_only:
+        render_hos_read_only(driver_id, driver_name=driver_name)
+        return
+
     st.subheader("⏰ Reset Planner & HOS Duty Clock")
     st.caption(
         "Log your current duty state. Going 'Off Duty' or 'Sleeper Berth' starts "
@@ -126,36 +201,8 @@ def render_driver_reset_planner(driver_id, driver_name=None):
 
     st.divider()
 
-    # 10-hour availability clock
-    summary = _load_summary(driver_id)
-    latest = summary["latest_log"]
-
-    st.markdown("**🛏️ Sleeper Rest Timer / 10-Hour Availability**")
-    if latest is None:
-        st.info("No duty logged yet. Select a duty state above to start the clock.")
-    elif latest.target_available_at is None:
-        st.caption("Latest duty state logged — no rest countdown is active.")
-        st.markdown(f"`{latest.duty_state}` — {_format_timestamp(latest.created_at)}")
-    else:
-        remaining = summary["seconds_remaining"]
-        if summary["is_resting"]:
-            st.markdown(
-                f"> **Resting since:** {_format_timestamp(summary['off_duty_started_at'])}"
-            )
-            st.markdown(
-                f"> **Available to drive in:** :green[**{_format_remaining(remaining)}**]"
-            )
-            st.markdown(
-                f"> **Availability return at:** {_format_timestamp(summary['target_available_at'])}"
-            )
-            st.progress(
-                min(1.0, (REST_HOURS * 3600 - remaining) / (REST_HOURS * 3600))
-                if (REST_HOURS * 3600) > 0
-                else 0.0,
-                text="Rest progress",
-            )
-        else:
-            st.success("You are fully rested and available to drive! 🚛")
+    # 10-hour availability clock (read-only availability block)
+    _render_availability_clock(_load_summary(driver_id))
 
     st.divider()
 

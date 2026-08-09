@@ -14,49 +14,81 @@ async def _get_or_none(db, model, field, value):
     result = await db.execute(select(model).where(getattr(model, field) == value))
     return result.scalar_one_or_none()
 
-async def seed_database():
-    """Idempotently seed the baseline demo assets (FIX-6.2).
 
-    Creates tables if missing, then inserts the baseline Carrier,
-    Owner/Dispatcher/Driver accounts, Vehicles, and Active Loads using a
-    get-or-create guard so reruns against an already-seeded database never
-    raise primary key or unique constraint exceptions.
+# TASK-7.1: Master Dev Account — Super-Admin Owner for live sales demos.
+MASTER_DEV_ACCOUNT = {
+    "email": "admin@twosix.com",
+    "username": "master",
+    "password": "DevMaster2026!",
+    "role": "Owner",
+}
+
+# Standard demo accounts so test suites and demos stay green.
+DEMO_ACCOUNTS = [
+    {"email": "owner@fleetscout.com", "username": "owner", "password": "password123", "role": "Owner"},
+    {"email": "dispatcher@fleetscout.com", "username": "dispatcher1", "password": "password123", "role": "Dispatcher"},
+    {"email": "driver@fleetscout.com", "username": "driver", "password": "password123", "role": "Driver"},
+    {"email": "driver@twosix.com", "username": "driver2", "password": "password123", "role": "Driver"},
+]
+
+
+async def _ensure_carrier(db):
+    """Get-or-create the baseline Carrier (id 1) — never raises if present."""
+    if await _get_or_none(db, Carrier, "id", 1) is None:
+        db.add(
+            Carrier(
+                id=1,
+                name="Two-Six Logistics LLC",
+                dot_number="USDOT-3829104",
+            )
+        )
+        await db.flush()
+    return await _get_or_none(db, Carrier, "id", 1)
+
+
+async def _ensure_demo_accounts(db):
+    """Idempotent get-or-create for the Master Dev + standard demo accounts.
+
+    Returns a dict of ``{email: user}`` for the downstream load/vehicle
+    seeding. Reruns against an already-populated database never raise unique
+    or primary key constraint exceptions.
+    """
+    accounts = [MASTER_DEV_ACCOUNT, *DEMO_ACCOUNTS]
+    created = {}
+    for account in accounts:
+        user = await _get_or_none(db, User, "email", account["email"])
+        if user is None:
+            user = User(
+                email=account["email"],
+                username=account["username"],
+                hashed_password=get_password_hash(account["password"]),
+                role=account["role"],
+                carrier_id=1,
+            )
+            db.add(user)
+            await db.flush()
+        created[account["email"]] = user
+    return created
+
+
+async def seed_database():
+    """Idempotently seed the baseline demo assets (FIX-6.2 / TASK-7.1).
+
+    Creates tables if missing, then inserts the baseline Carrier, the Master
+    Dev Account (``admin@twosix.com``), the Owner/Dispatcher/Driver demo
+    accounts, Vehicles, and Active Loads using a get-or-create guard so reruns
+    against an already-seeded database never raise primary key or unique
+    constraint exceptions.
     """
     Base.metadata.create_all(bind=sync_engine)
 
     async with AsyncSessionLocal() as db:
         try:
             # 1. Seed the baseline Carrier FIRST so users/loads can link to it.
-            if await _get_or_none(db, Carrier, "id", 1) is None:
-                db.add(
-                    Carrier(
-                        id=1,
-                        name="Two-Six Logistics LLC",
-                        dot_number="USDOT-3829104",
-                    )
-                )
+            await _ensure_carrier(db)
 
-            # 2. Seed demo Users NEXT (get-or-create by unique email).
-            demo_users = [
-                ("owner@fleetscout.com", "owner", "Owner"),
-                ("dispatcher@fleetscout.com", "dispatcher1", "Dispatcher"),
-                ("driver@fleetscout.com", "driver", "Driver"),
-                ("driver@twosix.com", "driver2", "Driver"),
-            ]
-            created_users = {}
-            for email, username, role in demo_users:
-                user = await _get_or_none(db, User, "email", email)
-                if user is None:
-                    user = User(
-                        email=email,
-                        username=username,
-                        hashed_password=get_password_hash("password123"),
-                        role=role,
-                        carrier_id=1,
-                    )
-                    db.add(user)
-                    await db.flush()
-                created_users[email] = user
+            # 2. Seed the Master Dev + demo Users NEXT (get-or-create by email).
+            created_users = await _ensure_demo_accounts(db)
 
             # 3. Seed Vehicles (get-or-create by unit number).
             truck_specs = [
@@ -129,12 +161,15 @@ async def seed_database():
 
 
 async def ensure_database_seeded() -> bool:
-    """FIX-6.2 self-healing startup check.
+    """FIX-6.2 + TASK-7.1 self-healing startup check.
 
-    Counts rows in the User table and, when it finds an empty database
-    (e.g. first boot on Streamlit Cloud), seeds the baseline Owner
-    (owner@fleetscout.com), Dispatcher, Driver, Carrier, Vehicle, and
-    Active Load records. Returns True when seeding was triggered.
+    Counts rows in the User table. On an empty database (first boot on
+    Streamlit Cloud) it seeds the full baseline (Carrier, Master Dev Account,
+    demo Owner/Dispatcher/Drivers, Vehicles, Active Loads). On an already-
+    populated database it applies the idempotent TASK-7.1 guard: the default
+    Carrier and the Master Dev Account are guaranteed to exist without wiping
+    or raising — even if a previous deployment left them missing.
+    Returns True only when a full baseline seed was triggered.
     """
     Base.metadata.create_all(bind=sync_engine)
     async with AsyncSessionLocal() as db:
@@ -142,6 +177,11 @@ async def ensure_database_seeded() -> bool:
         if count == 0:
             await seed_database()
             return True
+
+        # Non-empty DB: still guarantee the Carrier + Master Dev Account exist.
+        await _ensure_carrier(db)
+        await _ensure_demo_accounts(db)
+        await db.commit()
     return False
 
 if __name__ == "__main__":

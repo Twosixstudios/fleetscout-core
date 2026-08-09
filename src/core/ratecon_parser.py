@@ -1,7 +1,7 @@
-"""FreightSlip rate confirmation parsing + Form auto-fill engine (TASK-6.5).
+"""FreightSlip rate confirmation parsing + Form auto-fill engine.
 
-Pure, dependency-free parser that extracts the load metadata a dispatcher or
-owner needs straight off a Rate Confirmation text/PDF payload:
+Extracts the load metadata a dispatcher or owner needs straight off a Rate
+Confirmation payload:
 
 * Broker / Shipper Name
 * Rate ($ Payout, from Linehaul + Total pay figures)
@@ -9,15 +9,34 @@ owner needs straight off a Rate Confirmation text/PDF payload:
 * Delivery Location & Date
 * Commodity / Weight / Reference #
 
+Two extraction engines back this module:
+
+1. **AI engine (TASK-7.1)** — ported from the standalone
+   ``ratecon-ai-parser`` project (``schema.py`` + ``parser.py``). When a
+   ``GEMINI_API_KEY`` is configured the Gemini vision engine extracts the
+   structured load details straight off the PDF document with maximum
+   accuracy. The client import is lazy so the app never hard-depends on
+   ``google-genai`` being installed.
+2. **Regex engine (TASK-6.5)** — a dependency-free text extractor used as the
+   fallback whenever the AI path is unavailable (no API key, offline, or any
+   extraction failure).
+
 Everything parsed here is only *staged* for the Load Creation form — no
 database write ever happens inside this module. The caller must pass the
 data through the Human-in-the-Loop (HITL) authorization guardrail in
 ``services.create_authorized_load`` before it is committed.
 """
 
+import os
 import re
 from datetime import datetime
 from typing import Any, Dict, Optional
+
+try:
+    from pydantic import BaseModel, Field
+except ImportError:  # pragma: no cover - pydantic is a core dependency
+    BaseModel = None  # type: ignore
+    Field = None  # type: ignore
 
 # ---------------------------------------------------------------------------
 # Regex extractors (mirror the FreightSlip plugin grammar, plus richer geo and
@@ -68,6 +87,161 @@ DELIVERY_DATE_PATTERN = re.compile(
 # Target times are fed to the Load Creation form in the classic Streamlit
 # text format used by dispatch_panel._parse_target_time.
 FORM_TIME_FORMAT = "%m/%d/%Y %I:%M %p"
+
+# Gemini AI extraction constants (ported from ratecon-ai-parser/parser.py).
+GEMINI_MODEL_NAME = "gemini-flash-latest"
+GEMINI_PROMPT = (
+    "Extract structured load details and financial figures from this rate "
+    "confirmation document."
+)
+
+
+def get_gemini_api_key() -> str:
+    """Return the configured Gemini API key (empty when not set)."""
+    return os.getenv("GEMINI_API_KEY", "").strip()
+
+
+def _gemini_client_available() -> bool:
+    """True when the Google GenAI client is importable (lazy, offline-safe)."""
+    try:
+        import google.genai  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _gemini_active() -> bool:
+    """True when a Gemini key is set AND the client is importable."""
+    return bool(get_gemini_api_key()) and _gemini_client_available()
+
+
+class RateConfirmation(BaseModel):
+    """Ported FreightSlip data model (ratecon-ai-parser/schema.py).
+
+    Describes the structured load details the Gemini vision engine returns for
+    a rate confirmation document. Field names mirror the AI project; the
+    shipper/weight/date/ref enrichments feed the dispatch auto-fill form.
+    """
+
+    # Broker & reference info
+    broker_name: Optional[str] = Field(
+        default=None, description="Name of the freight broker or logistics company"
+    )
+    shipper_name: Optional[str] = Field(
+        default=None, description="Name of the shipper on the rate confirmation"
+    )
+    load_number: Optional[str] = Field(
+        default=None, description="Load, order, or reference number"
+    )
+
+    # Financials
+    line_haul_rate: float = Field(
+        default=0.0, description="Base line-haul rate in USD"
+    )
+    fuel_surcharge: float = Field(
+        default=0.0, description="Fuel surcharge amount in USD"
+    )
+    total_pay: float = Field(
+        default=0.0, description="Total gross pay amount in USD"
+    )
+
+    # Route & load specifications
+    origin: Optional[str] = Field(
+        default=None, description="Pickup location (City, State / Zip)"
+    )
+    destination: Optional[str] = Field(
+        default=None, description="Delivery location (City, State / Zip)"
+    )
+    pickup_date: Optional[str] = Field(
+        default=None, description="Pickup date (MM/DD/YYYY)"
+    )
+    delivery_date: Optional[str] = Field(
+        default=None, description="Delivery date (MM/DD/YYYY)"
+    )
+    load_weight: Optional[int] = Field(
+        default=None, description="Total freight weight in pounds"
+    )
+    total_miles: Optional[int] = Field(
+        default=None, description="Total trip mileage"
+    )
+    commodity: Optional[str] = Field(
+        default=None, description="Type of freight/goods being transported"
+    )
+    equipment_type: Optional[str] = Field(
+        default=None, description="Required equipment (e.g., Dry Van, Reefer, Flatbed)"
+    )
+    pickup_ref: Optional[str] = Field(
+        default=None, description="Pickup reference number"
+    )
+    delivery_ref: Optional[str] = Field(
+        default=None, description="Delivery reference number"
+    )
+
+
+def extract_rate_confirmation_ai(
+    pdf_bytes: bytes, api_key: Optional[str] = None
+) -> RateConfirmation:
+    """Ported Gemini extraction engine (ratecon-ai-parser/parser.py).
+
+    Passes the raw PDF bytes straight into Gemini's vision engine and returns a
+    validated :class:`RateConfirmation`. Raises ``RateConfirmationParseError``
+    when no API key is available and any client/network error propagates for the
+    caller to degrade gracefully to the regex engine.
+    """
+    api_key = api_key or get_gemini_api_key()
+    if not api_key:
+        raise RateConfirmationParseError("GEMINI_API_KEY missing in .env")
+
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key, vertexai=False)
+    pdf_part = types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf")
+
+    response = client.models.generate_content(
+        model=GEMINI_MODEL_NAME,
+        contents=[pdf_part, GEMINI_PROMPT],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=RateConfirmation,
+            temperature=0.1,
+        ),
+    )
+    return RateConfirmation.model_validate_json(response.text)
+
+
+def rate_confirmation_to_dict(conf: RateConfirmation) -> Dict[str, Any]:
+    """Map a ``RateConfirmation`` (AI engine output) to the flat dict the
+    Load Creation form consumes — same keys as ``parse_rate_reconfirmation_text``."""
+    data: Dict[str, Any] = {
+        "broker_name": getattr(conf, "broker_name", None),
+        "shipper_name": getattr(conf, "shipper_name", None),
+        "load_number": getattr(conf, "load_number", None),
+        "load_weight": getattr(conf, "load_weight", None),
+        "commodity": getattr(conf, "commodity", None),
+        "pickup_ref": getattr(conf, "pickup_ref", None),
+        "delivery_ref": getattr(conf, "delivery_ref", None),
+        "pickup_location": getattr(conf, "origin", None),
+        "pickup_date": getattr(conf, "pickup_date", None),
+        "delivery_location": getattr(conf, "destination", None),
+        "delivery_date": getattr(conf, "delivery_date", None),
+        "linehaul_rate": float(getattr(conf, "line_haul_rate", 0.0) or 0.0),
+        "fuel_surcharge": float(getattr(conf, "fuel_surcharge", 0.0) or 0.0),
+        "total_pay": float(getattr(conf, "total_pay", 0.0) or 0.0),
+        "total_miles": getattr(conf, "total_miles", None),
+        "equipment_type": getattr(conf, "equipment_type", None),
+    }
+    data["payout"] = data["total_pay"] or data["linehaul_rate"]
+    return data
+
+
+def parse_rate_con_pdf(pdf_bytes: bytes, api_key: Optional[str] = None) -> RateConfirmation:
+    """Compatibility entrypoint mirroring the standalone parser project.
+
+    ``parse_rate_con_pdf`` matches the ``ratecon-ai-parser.parser`` public API
+    exactly, so any scripted against the original project keeps working.
+    """
+    return extract_rate_confirmation_ai(pdf_bytes, api_key=api_key)
 
 
 class RateConfirmationParseError(ValueError):
@@ -174,9 +348,23 @@ def parse_rate_reconfirmation_text(text: str) -> Dict[str, Any]:
 def parse_rate_confirmation_bytes(raw: bytes) -> Dict[str, Any]:
     """Parse a PDF/.txt payload (raw bytes) into load metadata.
 
-    Backed by the FreightSlip grammar extractors above; the caller feeds the
-    same bytes that ``st.file_uploader`` returns (``.getvalue()``).
+    TASK-7.1: the Gemini AI engine (ported from ``ratecon-ai-parser``) runs
+    first when a key is configured and the client is installed — extracting
+    broker/shipper, payout/rates, pickup & delivery locations/dates, weight,
+    commodity, and reference numbers right off the PDF document. Any failure
+    degrades gracefully to the dependency-free regex extractors, so the app
+    never crashes without an API key or network access.
     """
+    if _gemini_active():
+        try:
+            conf = extract_rate_confirmation_ai(raw)
+            data = rate_confirmation_to_dict(conf)
+            if data.get("load_number") or data.get("payout") or data.get("broker_name"):
+                data["provider"] = "ratecon_ai"
+                return data
+        except Exception:
+            # Degrade to the regex engine instead of surfacing an AI failure.
+            pass
     text = _decode_utf8(raw)
     return parse_rate_reconfirmation_text(text)
 

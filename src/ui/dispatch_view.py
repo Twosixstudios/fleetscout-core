@@ -8,6 +8,7 @@ from sqlalchemy import select
 from src.core.database import AsyncSessionLocal
 from src.core.models import User
 from src.core.services import admin_reset_password
+from src.ui.driver_reset_planner import render_hos_read_only
 from src.ui.gps_component import render_demo_map
 
 
@@ -132,6 +133,26 @@ def render_dispatch_view(carrier_id=1):
     st.divider()
     st.markdown("**🗺️ Live Dispatch Telemetry**")
     render_demo_map()
+
+    # TASK-7.1: read-only HOS availability board — Dispatchers see driver
+    # hour availability (11h driving / 14h shift / 10h sleeper) but can NEVER
+    # mutate a driver's duty log from this view (FMCSA compliance guardrail).
+    st.divider()
+    st.markdown("**🕐 Driver Hours of Service (Read-Only)**")
+    st.caption(
+        "Live FMCSA availability badges per driver. Duty logs are driver-controlled; "
+        "dispatch cannot edit them."
+    )
+    drivers = [u for u in team if u.role == "Driver"]
+    if drivers:
+        for driver in drivers:
+            with st.expander(f"{driver.username or driver.email} ({driver.role})"):
+                render_hos_read_only(
+                    driver_id=driver.id,
+                    driver_name=driver.username or driver.email,
+                )
+    else:
+        st.info("No drivers on this carrier's roster yet.")
 
 
 def main():

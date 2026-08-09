@@ -29,11 +29,10 @@ from src.core.security import get_password_hash, verify_password
 
 @pytest.mark.asyncio
 async def test_startup_self_heals_empty_database():
-    """FIX-6.2: initializing against a fresh empty database triggers auto-seeding.
-
-    The module-scoped fixture has just (re)built empty tables, so this must
-    run first: a User count of 0 forces ensure_database_seeded() to seed the
-    baseline accounts, and a second pass stays a no-op (idempotent).
+    """FIX-6.2 + TASK-7.1: initializing against a fresh empty database triggers
+    auto-seeding. The module-scoped fixture has just (re)built empty tables, so
+    this must run first: a User count of 0 forces ensure_database_seeded() to
+    seed the baseline accounts, and a second pass stays a no-op (idempotent).
     """
     async with AsyncSessionLocal() as session:
         count = (await session.execute(select(func.count()).select_from(User))).scalar_one()
@@ -45,12 +44,24 @@ async def test_startup_self_heals_empty_database():
     async with AsyncSessionLocal() as session:
         emails = set((await session.execute(select(User.email))).scalars().all())
         baseline = {
+            "admin@twosix.com",
             "owner@fleetscout.com",
             "dispatcher@fleetscout.com",
             "driver@fleetscout.com",
+            "driver@twosix.com",
         }
         assert baseline <= emails
-        assert len(emails) == 4
+        assert len(emails) == 5
+
+    # Authority check: the Master Dev Account is the seeded Owner super-admin.
+    async with AsyncSessionLocal() as session:
+        admin_user = (
+            await session.execute(select(User).where(User.email == "admin@twosix.com"))
+        ).scalar_one()
+        assert admin_user.role == "Owner"
+        assert admin_user.carrier_id == 1
+        assert admin_user.is_active is True
+        assert verify_password("DevMaster2026!", admin_user.hashed_password)
 
     # Idempotent guard: re-seeding the populated DB adds nothing and never raises.
     reseeded = await ensure_database_seeded()
@@ -58,7 +69,32 @@ async def test_startup_self_heals_empty_database():
     async with AsyncSessionLocal() as session:
         assert (
             await session.execute(select(func.count()).select_from(User))
-        ).scalar_one() == 4
+        ).scalar_one() == 5
+
+
+@pytest.mark.asyncio
+async def test_master_dev_account_reseeded_when_missing_on_existing_db():
+    """TASK-7.1 guardrail on non-empty databases: if the Master Dev Account is
+    somehow missing (e.g. a stale deployment), the startup seeder recreates it
+    instead of wiping data or raising — without touching existing rows."""
+    async with AsyncSessionLocal() as session:
+        admin_user = (
+            await session.execute(select(User).where(User.email == "admin@twosix.com"))
+        ).scalar_one()
+        await session.delete(admin_user)
+        await session.commit()
+
+    await ensure_database_seeded()
+
+    async with AsyncSessionLocal() as session:
+        restored = (
+            await session.execute(select(User).where(User.email == "admin@twosix.com"))
+        ).scalar_one()
+        assert restored.role == "Owner"
+        assert verify_password("DevMaster2026!", restored.hashed_password)
+        assert (
+            await session.execute(select(func.count()).select_from(User))
+        ).scalar_one() == 5
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -1409,4 +1445,212 @@ def test_quick_load_analyzer_renders_financial_metrics_card(monkeypatch):
     assert "Profit Margin" in labels
     assert "RPM · Rate Per Mile" in labels
     assert "CPM · Cost Per Mile" in labels
+
+
+# ==========================================
+# TASK-7.1: Ratecon AI Parser (ported from ratecon-ai-parser)
+# ==========================================
+def test_ported_ratecon_schema_maps_to_form_dict():
+    """TASK-7.1: the ported `RateConfirmation` Pydantic schema validates and
+    maps through `rate_confirmation_to_dict` into the exact dict keys the
+    dispatch form consumes (broker/shipper, rates, pickup/delivery locations +
+    dates, weight, commodity, references, and payout)."""
+    from src.core.ratecon_parser import RateConfirmation, rate_confirmation_to_dict
+
+    conf = RateConfirmation(
+        broker_name="Acme Corp Freight Brokers",
+        shipper_name="WidgetMfg Supply",
+        load_number="RC-8801",
+        line_haul_rate=2450.00,
+        fuel_surcharge=315.75,
+        total_pay=2765.75,
+        origin="1234 Citrus Ave, Fresno, CA",
+        destination="899 Market St, San Francisco, CA",
+        pickup_date="08/07/2026",
+        delivery_date="08/11/2026",
+        load_weight=42800,
+        commodity="Auto Parts",
+        equipment_type="Dry Van",
+        pickup_ref="PU-10001",
+        delivery_ref="DEL-2002",
+        total_miles=1210,
+    )
+    data = rate_confirmation_to_dict(conf)
+
+    assert data["broker_name"] == "Acme Corp Freight Brokers"
+    assert data["shipper_name"] == "WidgetMfg Supply"
+    assert data["load_number"] == "RC-8801"
+    assert data["load_weight"] == 42800
+    assert data["commodity"] == "Auto Parts"
+    assert data["pickup_ref"] == "PU-10001"
+    assert data["delivery_ref"] == "DEL-2002"
+    assert data["pickup_location"] == "1234 Citrus Ave, Fresno, CA"
+    assert data["pickup_date"] == "08/07/2026"
+    assert data["delivery_location"] == "899 Market St, San Francisco, CA"
+    assert data["delivery_date"] == "08/11/2026"
+    assert data["linehaul_rate"] == pytest.approx(2450.00)
+    assert data["total_pay"] == pytest.approx(2765.75)
+    assert data["payout"] == pytest.approx(2765.75)
+    assert data["total_miles"] == 1210
+    assert data["equipment_type"] == "Dry Van"
+
+
+def test_ai_ratecon_parser_uses_regex_fallback_without_api_key(monkeypatch):
+    """TASK-7.1: when no GEMINI_API_KEY is configured the AI path is skipped and
+    the same payload parses via the dependency-free regex engine (offline-safe)."""
+    import src.core.ratecon_parser as rp
+
+    monkeypatch.setattr(rp, "get_gemini_api_key", lambda: "")
+    monkeypatch.setattr(rp, "_gemini_client_available", lambda: True)
+
+    parsed = rp.parse_rate_confirmation_bytes(SAMPLE_RATECON_TEXT.encode("utf-8"))
+    assert parsed["provider"] == "ratecon_ocr"
+    assert parsed["load_number"] == "RC-8801"
+    assert parsed["broker_name"] == "Acme Corp Freight Brokers"
+
+
+def test_ai_ratecon_parser_prefers_gemini_when_active(monkeypatch):
+    """TASK-7.1: when the Gemini client + key are active the AI attribute
+    extraction engine runs first and wins (provider='ratecon_ai')."""
+    import src.core.ratecon_parser as rp
+
+    monkeypatch.setattr(rp, "get_gemini_api_key", lambda: "test-key")
+    monkeypatch.setattr(rp, "_gemini_client_available", lambda: True)
+    monkeypatch.setattr(
+        rp,
+        "extract_rate_confirmation_ai",
+        lambda pdf_bytes, api_key=None: rp.RateConfirmation(
+            broker_name="AI Broker",
+            load_number="AI-99",
+            line_haul_rate=900.0,
+            total_pay=880.75,
+            origin="Ontario, CA",
+            destination="El Paso, TX",
+            pickup_date="08/09/2026",
+            delivery_date="08/12/2026",
+            load_weight=44000,
+            commodity="AI Cargo",
+            pickup_ref="AI-PU",
+            delivery_ref="AI-DEL",
+        ),
+    )
+    parsed = rp.parse_rate_confirmation_bytes(b"%PDF-1.4 fake ai payload")
+    assert parsed["provider"] == "ratecon_ai"
+    assert parsed["load_number"] == "AI-99"
+    assert parsed["broker_name"] == "AI Broker"
+    assert parsed["pickup_location"] == "Ontario, CA"
+    assert parsed["payout"] == pytest.approx(880.75)
+
+
+def test_ai_ratecon_parser_degrades_into_regex_upon_failure(monkeypatch):
+    """TASK-7.1: if the Gemini call raises, parse degrades gracefully to the
+    regex extractor instead of crashing the caller."""
+    import src.core.ratecon_parser as rp
+
+    monkeypatch.setattr(rp, "get_gemini_api_key", lambda: "test-key")
+    monkeypatch.setattr(rp, "_gemini_client_available", lambda: True)
+
+    def _boom(pdf_bytes, api_key=None):
+        raise RuntimeError("simulated Gemini 429 / network failure")
+
+    monkeypatch.setattr(rp, "extract_rate_confirmation_ai", _boom)
+
+    parsed = rp.parse_rate_confirmation_bytes(SAMPLE_RATECON_TEXT.encode("utf-8"))
+    assert parsed["provider"] == "ratecon_ocr"
+    assert parsed["load_number"] == "RC-8801"
+
+
+# ==========================================
+# TASK-7.1: FMCSA read-only HOS integrity guardrail
+# ==========================================
+def test_driver_console_keeps_interactive_duty_toggles():
+    """TASK-7.1: the DRIVER's own mobile console keeps the interactive Duty
+    Status toggles (Driving / On Duty / Off Duty / Sleeper) so drivers can
+    still self-log hours."""
+    from streamlit.testing.v1 import AppTest
+
+    probe = (
+        "import os, sys\n"
+        "sys.path.insert(0, os.getcwd())\n"
+        "import streamlit as st\n"
+        "from src.ui.driver_reset_planner import render_driver_reset_planner\n"
+        "st.set_page_config(page_title='probe')\n"
+        "render_driver_reset_planner(driver_id=4)\n"
+    )
+    at = AppTest.from_string(probe, default_timeout=30)
+    at.run()
+    assert not at.exception
+    labels = {b.label for b in at.button}
+    assert "Driving" in labels
+    assert "Off Duty" in labels
+    assert "Sleeper Berth" in labels
+
+
+def test_hos_read_only_planner_removes_interactive_duty_toggles():
+    """TASK-7.1: `render_hos_read_only` shows the FMCSA badges (11h driving /
+    14h shift / 10h sleeper) and availability clock with NO interactive duty
+    status buttons — enforcing read-only driver-log compliance."""
+    from streamlit.testing.v1 import AppTest
+
+    probe = (
+        "import os, sys\n"
+        "sys.path.insert(0, os.getcwd())\n"
+        "import streamlit as st\n"
+        "from src.ui.driver_reset_planner import render_hos_read_only\n"
+        "st.set_page_config(page_title='probe')\n"
+        "render_hos_read_only(driver_id=4)\n"
+    )
+    at = AppTest.from_string(probe, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    forbidden = {"Driving", "On Duty (not driving)", "Off Duty", "Sleeper Berth"}
+    labels = {b.label for b in at.button}
+    assert not (forbidden & labels)
+
+    metric_labels = {m.label for m in at.metric}
+    assert "Driving Window" in metric_labels
+    assert "Shift Window" in metric_labels
+    assert "Sleeper Rest" in metric_labels
+    assert "Duty Status" in metric_labels
+
+
+def test_owner_console_has_readonly_hos_without_duty_toggles(monkeypatch):
+    """TASK-7.1: the Owner Portal's Driver Console renders HOS as read-only —
+    no interactive duty status toggles surface anywhere in the Executive Dashboard."""
+    from src.core import fuel_service
+
+    monkeypatch.setattr(
+        fuel_service,
+        "get_current_diesel_price",
+        lambda region="national": {
+            "price_per_gal": 3.85,
+            "updated_at": "2026-08-08T00:00:00+00:00",
+            "source": "Test",
+            "is_fallback": True,
+        },
+    )
+    monkeypatch.setattr(
+        fuel_service,
+        "get_effective_fuel_cost",
+        lambda carrier_discount=0.0: 3.85,
+    )
+
+    from streamlit.testing.v1 import AppTest
+
+    probe_script = (
+        "import os, sys\n"
+        "sys.path.insert(0, os.getcwd())\n"
+        "import streamlit as st\n"
+        "from src.ui.owner_portal import render_owner_portal\n"
+        "st.set_page_config(page_title='probe')\n"
+        "render_owner_portal(carrier_id=1, actor_user_id=4)\n"
+    )
+    at = AppTest.from_string(probe_script, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    forbidden = {"Driving", "On Duty (not driving)", "Off Duty", "Sleeper Berth"}
+    labels = {b.label for b in at.button}
+    assert not (forbidden & labels)
 
