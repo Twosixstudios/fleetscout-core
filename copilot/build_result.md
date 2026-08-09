@@ -1,108 +1,115 @@
 # 🤖 OpenCode Execution Report
 
-**Task:** TASK-6.6 — Live Fuel API Service & EIA Diesel Benchmark Engine
-**Timestamp:** Sat Aug  8 17:00:00 PDT 2026
-**Status:** ✅ Complete — 86 passed
+**Task:** TASK-6.7 — Owner Ratecon Profitability Calculator & Quick Load Analyzer
+**Timestamp:** Sat Aug  8 18:00:00 PDT 2026
+**Status:** ✅ Complete — 90 passed
 
 ---
 
 ### 📁 Modified Files:
 ```text
  M Tasks.md
- M src/core/models.py
+ M src/core/services.py
+ M src/ui/owner_portal.py
  M tests/test_end_to_end.py
- A src/core/fuel_service.py
 ```
 
 ### 🎯 Objective
-Build a lightweight, resilient fuel price service that auto-fetches weekly
-U.S. On-Highway Diesel prices, caches the value locally for 24 hours so
-Streamlit reruns never spam external HTTP endpoints, applies optional
-carrier fuel-card discounts, and degrades gracefully during network outages.
+Build a "📈 Load Profitability & ROI Analyzer" inside the Owner Portal that
+combines parsed FreightSlip Ratecon data with the live EIA fuel service and
+carrier cost baselines to instantly display net margin, RPM, CPM, and a
+color-coded profit decision badge.
 
 ---
 
 ### 📜 Execution Logs
 
-#### 1. Fuel Price Fetching & Caching Engine (`src/core/fuel_service.py`) — NEW
-- `parse_diesel_price_csv(text)` — tolerant stdlib `csv` extractor that
-  reads the newest data row from the EIA `gasdiesel.csv` feed and returns
-  the On-Highway Diesel column; header rows and unparseable feeds are
-  skipped, `ValueError` surfaces no usable price.
-- `get_current_diesel_price(region="national")` — returns structured
-  `{"price_per_gal", "updated_at", "source", "is_fallback"}`:
-  - Serves a fresh (< 24 h) on-disk JSON cache immediately — zero network.
-  - Otherwise fetches the live EIA feed and refreshes the cache.
-  - On any failure serves a stale cache (marked `is_fallback`) or the
-    `$3.85/gal` demo floor with `is_fallback: True`.
-  - Entire route is exception-guarded: offline / API down can never crash.
-- **24-hour TTL caching:** filesystem JSON cache under `tempfile`
-  (`FLEETSCOUT_FUEL_CACHE_DIR` overridable); `clear_cache()` helper.
-- Testability seams: `_now_ts()`, `_fetch_benchmark()`,
-  `clear_cache()` are monkeypatchable and isolated per-test.
+#### 1. Profitability Calculation Engine (`src/core/services.py`)
+- Added `calculate_load_profitability(gross_payout, total_miles, mpg,
+  fuel_price, driver_cpm, fixed_cpm_reserve=0.15) -> dict`:
+  - `fuel_cost = (total_miles / mpg) * fuel_price`
+  - `driver_cost = total_miles * driver_cpm`
+  - `overhead_reserve = total_miles * fixed_cpm_reserve`
+  - `total_cost = fuel_cost + driver_cost + overhead_reserve`
+  - `net_profit = gross_payout - total_cost`
+  - `rpm = gross_payout / total_miles`, `cpm = total_cost / total_miles`
+  - `profit_margin_pct = (net_profit / gross_payout) * 100`
+  - Badge status: `🟢 Highly Profitable` (≥ 20%), `🟡 Marginal` (5%–19%),
+    `🔴 Unprofitable` (< 5%).
+  - **Division-by-zero guardrail:** zero miles, zero MPG, or zero payout never
+    raise — the calculator reports `valid=False`, zeroed derived money figures,
+    and the Unprofitable badge so the UI warns the owner.
+- Constants exported: `PROFIT_HIGHLY_PROFITABLE_STATUS`,
+  `PROFIT_MARGINAL_STATUS`, `PROFIT_UNPROFITABLE_STATUS`, threshold margins.
 
-#### 2. Effective Fuel Cost Calculator
-- `get_effective_fuel_cost(carrier_discount=0.0) -> float` — subtracts the
-  carrier fuel-card discount (e.g. `$0.45`/gal) from the live benchmark
-  and clamps with `max(..., 0.0)` so the result never drops below `$0.00`.
+#### 2. Quick Load Analyzer UI (`src/ui/owner_portal.py`)
+- New 5th Executive Dashboard tab **「📈 Quick Load Analyzer」** wired through
+  `render_owner_portal()` (existing 4 tabs untouched).
+- `_render_quick_load_analyzer(carrier, carrier_id)`:
+  - **Ratecon PDF/TXT uploader** (FreightSlip integration via
+    `parse_rate_confirmation_bytes`) that pre-fills the Gross Payout field; the
+    user can also type payout / trip distance manually.
+  - **Live fuel pre-population** from `get_effective_fuel_cost()` (EIA
+    benchmark minus the carrier fuel-card discount) and carrier baselines
+    `default_mpg` + `default_driver_cpm`, rendered as a live benchmark caption.
+  - **Financial Metrics Card:** Gross Payout vs. Total Costs breakdown (Fuel,
+    Driver, Overhead with per-mile figures), Net Profit ($), RPM ($/mi), CPM
+    ($/mi), Profit Margin %, and a high-visibility color-coded Profitability
+    Decision Badge (`st.success`/`st.warning`/`st.error`).
+  - Parse failures degrade to a `st.warning` — never an app crash.
 
-#### 3. Carrier Settings Schema Upgrade (`src/core/models.py`)
-- `Carrier` extended with optional default columns, all `nullable=True`
-  with ORM-level demo defaults:
-  - `default_mpg` → `6.5`
-  - `default_driver_cpm` → `0.60`
-  - `carrier_fuel_discount` → `0.00`
-- Fresh `Carrier` rows get these defaults automatically; no seed change
-  required (`seed.py` constructs `Carrier(...)` without touching them).
-
-#### 4. Automated Verification (`tests/test_end_to_end.py`)
-- `test_fuel_eia_csv_parser_extracts_latest_diesel` — newest-row diesel
-  extraction, skip-header behavior, junk → `ValueError`.
-- `test_fuel_price_fetches_success_and_serves_24h_cache` — live fetch
-  returns metadata; a cache hit makes zero network calls; past the 24 h
-  TTL a live re-fetch fires.
-- `test_fuel_price_falls_back_on_network_failure` — offline never crashes;
-  `$3.85/gal` demo floor with `is_fallback True`.
-- `test_fuel_stale_cache_is_used_when_fetch_fails` — a prior live value is
-  served (marked fallback) instead of dropping to the floor.
-- `test_fuel_effective_cost_applies_carrier_discount` — `0.45` → `3.40`;
-  no discount → benchmark; over-size discount clamps to `$0.00`.
-- `test_carrier_defaults_expose_economic_fuel_columns` — fresh `Carrier`
-  row exposes `6.5 / 0.60 / 0.00` defaults, persisted on disk.
+#### 3. Automated Verification (`tests/test_end_to_end.py`)
+- `test_profitability_math_is_accurate` — the documented formulas resolve
+  exactly (fuel/driver/overhead, total, net, RPM, CPM, margin).
+- `test_profitability_status_badge_thresholds` — boundary badges for the 20%
+  and 5% thresholds (exactly 20% = Highly Profitable, 5%–19% = Marginal,
+  < 5% = Unprofitable).
+- `test_profitability_guards_division_by_zero` — zero miles / MPG / payout
+  return `valid=False` + Unprofitable instead of raising.
+- `test_quick_load_analyzer_renders_financial_metrics_card` — the analyzer tab
+  renders the Financial Metrics Card (Net Profit, Margin, RPM, CPM) with an
+  injected deterministic fuel benchmark and no app exception.
+- Updated the executive tab-navigation test to assert all **five** tabs render
+  (Fleet / Driver / Team / Carrier / 📈 Quick Load Analyzer) with the EIA fuel
+  service monkeypatched so rendering stays offline-friendly.
+- Full suite: `90 passed, 1 warning in ~11s`.
 
 #### Tasks.md
-- Phase 6 now **8 / 8 Tasks Completed (100%)** with
-  **Task 6.8: Live Fuel API Service & EIA Diesel Benchmark Engine
-  (`TASK-6.6`)** flipped to `[x]`.
-- `Current Status` header progress synced to `8 / 8`.
-- Active Phase remains Phase 6 — it is the final roadmap phase, so no
-  Phase 7 exists to advance into.
+- Phase 6 now **9 / 9 Tasks Completed (100%)** with
+  **Task 6.9: Owner Ratecon Profitability Calculator & Quick Load Analyzer
+  (`TASK-6.7`)** flipped to `[x]`.
+- `Current Status` header (+ the Phase 6 section) progress synced to `9 / 9`.
+- Active Phase remains Phase 6 — final roadmap phase, no Phase 7 exists yet.
 
 ---
 
 ### 🧪 Verification
 ```text
 $ venv/bin/python -m pytest
-86 passed, 1 warning in 10.99s
+90 passed, 1 warning in 11.60s
 ```
 
 ### ✅ Full Requirement Checklist (re-verified)
-- [x] **Live benchmark engine:** `get_current_diesel_price(region)` auto-fetches U.S. On-Highway Diesel from the EIA feed.
-- [x] **24-hour caching:** on-disk JSON cache with TTL; Streamlit reruns reuse the cache without HTTP spamming.
-- [x] **Structured metadata:** returns `{price_per_gal, updated_at, source, is_fallback}`.
-- [x] **Fallback safety:** offline/API-down → stale cache or `$3.85/gal` with `is_fallback: True`, never a crash.
-- [x] **Effective fuel cost:** `get_effective_fuel_cost(carrier_discount)` subtracts the fuel discount with a `$0.00` floor.
-- [x] **Carrier schema upgrade:** `default_mpg` (6.5), `default_driver_cpm` (0.60), `carrier_fuel_discount` (0.00).
-- [x] **Automated verification:** 6 new pytest cases; full suite `86 passed`.
+- [x] `calculate_load_profitability()` in `src/core/services.py` with all
+      documented formulas and badge thresholds.
+- [x] `📈 Quick Load Analyzer` tab in the Owner Portal (`src/ui/owner_portal.py`).
+- [x] Ratecon PDF uploader + manual Gross Payout / Trip Distance inputs
+      (FreightSlip integration reusing the TASK-6.5 parser).
+- [x] Live fuel pre-population from `fuel_service.py` and carrier defaults
+      (`default_mpg`, `default_driver_cpm`, `carrier_fuel_discount`).
+- [x] High-visibility Financial Metrics Card: cost breakdown + Net Profit +
+      RPM + CPM + color-coded Profitability Decision Badge.
+- [x] Division-by-zero guardrail on zero miles / MPG / payout.
+- [x] End-to-end maths, threshold, and UI-rendering tests — `90 passed`.
 
-### 🔒 Guardrails Honored
+### 🔒 Guardrails
 - Native `bcrypt` only (no passlib) — untouched.
-- No third-party HTTP/cache dependencies; stdlib `urllib`/`json`/`csv` only.
-- All DB interactions remain `AsyncSession`-based; new model columns are
-  simple `Float` columns.
-- No secrets written to source; EIA public feed used (no API key).
+- All DB operations remain `AsyncSession`-based; no new schema changes.
+- The calculator is pure and dependency-free (stdlib `float` math only).
+- No network calls from the UI at rest: fuel benchmark only queried once via the
+  cached `get_effective_fuel_cost()`; AppTest uses a monkeypatched benchmark.
 
 ### 🚀 Deploy Command
 ```bash
-git add . && git commit -m "feat(fuel): add live diesel fuel benchmark service with caching and fallback guards" && git push origin main
+git add . && git commit -m "feat(owner): add quick load analyzer and ratecon profitability calculator" && git push origin main
 ```

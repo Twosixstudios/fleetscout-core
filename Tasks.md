@@ -1,5 +1,5 @@
 ---
-kanban-plugin: board
+kanban-plugin: list
 ---
 
 ## 🚚 FleetScout - Architecture & Rules
@@ -17,7 +17,7 @@ kanban-plugin: board
 	**Target Deliverable:**
 	Owner role account, dynamic white-label carrier branding, Executive Owner Dashboard (Fleet Command Center, Driver Console, Team & Access, Carrier Settings), team roster with full deletion/access controls, onboarding invite/redemption, and password overrides.
 	
-	**Overall Progress:** 8 / 8 Tasks Completed (100%)
+	**Overall Progress:** 9 / 9 Tasks Completed (100%)
 
 
 ## 🔒 Phase 1: Future-Proof Schema & Database Foundation
@@ -116,7 +116,7 @@ kanban-plugin: board
 
 ## 🏠 Phase 6: Owner Portal, Branding & Demo Defaults
 
-	**Overall Progress:** 8 / 8 Tasks Completed (100%)
+	**Overall Progress:** 9 / 9 Tasks Completed (100%)
 
 - [x] **Task 6.1: Owner Portal, Dynamic Branding & Default Field Placeholders (`TASK-6.1`)** `#priority/high`
 	- **Description:** Establish the Owner role, auto-seed `owner@fleetscout.com` with realistic carrier defaults, build the Owner Portal UI (Carrier Settings form with greyed-out placeholders, pre-populated values, save -> live header rerun, Team Roster), and implement dynamic white-label headers.
@@ -150,6 +150,10 @@ kanban-plugin: board
 	- **Description:** Build a lightweight, resilient fuel price service (`src/core/fuel_service.py`) that auto-fetches weekly U.S. On-Highway Diesel prices from the EIA, caches the value on-disk with a 24-hour TTL so Streamlit reruns do not spam external HTTP requests, applies optional carrier fuel-card discounts with a non-negative floor, and provides graceful fallbacks (stale cache → `$3.85/gal` demo floor) during network outages.
 	- **Prerequisites:** Task 6.7
 	- **Verification:** `venv/bin/python -m pytest` (86 passed)
+- [x] **Task 6.9: Owner Ratecon Profitability Calculator & Quick Load Analyzer (`TASK-6.7`)** `#priority/high`
+	- **Description:** Add a "📈 Quick Load Analyzer" tab to the Owner Portal that combines parsed FreightSlip Ratecon data with the live EIA fuel benchmark and carrier cost baselines to instantly display net margin, RPM, CPM, and a color-coded profit decision badge, backed by a guarded `calculate_load_profitability()` engine with division-by-zero protection.
+	- **Prerequisites:** Task 6.8
+	- **Verification:** `venv/bin/python -m pytest` (90 passed)
 
 
 

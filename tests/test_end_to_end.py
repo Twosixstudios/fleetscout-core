@@ -920,8 +920,26 @@ async def test_password_override_binds_new_credential_and_drops_old():
     assert not verify_password("original123", updated.hashed_password)
 
 
-def test_executive_dashboard_tab_navigation_renders_all_four():
-    """Executive Owner Dashboard exposes the four executive tabs."""
+def test_executive_dashboard_tab_navigation_renders_all_tabs(monkeypatch):
+    """Executive Owner Dashboard exposes the five executive tabs."""
+    from src.core import fuel_service
+
+    monkeypatch.setattr(
+        fuel_service,
+        "get_current_diesel_price",
+        lambda region="national": {
+            "price_per_gal": 3.85,
+            "updated_at": "2026-08-08T00:00:00+00:00",
+            "source": "Test",
+            "is_fallback": True,
+        },
+    )
+    monkeypatch.setattr(
+        fuel_service,
+        "get_effective_fuel_cost",
+        lambda carrier_discount=0.0: 3.85,
+    )
+
     from streamlit.testing.v1 import AppTest
 
     probe_script = (
@@ -940,6 +958,7 @@ def test_executive_dashboard_tab_navigation_renders_all_four():
     assert "🚛 Driver Console View" in labels
     assert "👥 Team & Access Management" in labels
     assert "⚙️ Carrier Settings" in labels
+    assert "📈 Quick Load Analyzer" in labels
 
 
 
@@ -1243,4 +1262,151 @@ async def test_carrier_defaults_expose_economic_fuel_columns():
         assert stored.carrier_fuel_discount == pytest.approx(0.00)
         await session.delete(stored)
         await session.commit()
+
+
+# ==========================================
+# TASK-6.7: Owner Ratecon Profitability Calculator & Quick Load Analyzer
+# ==========================================
+def test_profitability_math_is_accurate():
+    """TASK-6.7: fuel/driver/overhead costs, totals, RPM, CPM, and margin
+    resolve exactly from the documented formulas."""
+    from src.core.services import calculate_load_profitability
+
+    result = calculate_load_profitability(
+        gross_payout=3000.0,
+        total_miles=1000.0,
+        mpg=6.5,
+        fuel_price=3.85,
+        driver_cpm=0.60,
+    )
+
+    fuel_cost = (1000.0 / 6.5) * 3.85
+    driver_cost = 1000.0 * 0.60
+    overhead_reserve = 1000.0 * 0.15
+    total_cost = fuel_cost + driver_cost + overhead_reserve
+    net_profit = 3000.0 - total_cost
+
+    assert result["fuel_cost"] == pytest.approx(fuel_cost, abs=0.01)
+    assert result["driver_cost"] == pytest.approx(driver_cost, abs=0.01)
+    assert result["overhead_reserve"] == pytest.approx(overhead_reserve, abs=0.01)
+    assert result["total_cost"] == pytest.approx(total_cost, abs=0.01)
+    assert result["net_profit"] == pytest.approx(net_profit, abs=0.01)
+    assert result["rpm"] == pytest.approx(3.0, abs=0.01)
+    assert result["cpm"] == pytest.approx(total_cost / 1000.0, abs=0.01)
+    assert result["profit_margin_pct"] == pytest.approx(
+        (net_profit / 3000.0) * 100, abs=0.01
+    )
+    assert result["status"] == "🟢 Highly Profitable"
+    assert result["valid"] is True
+
+
+def test_profitability_status_badge_thresholds():
+    """TASK-6.7: badge boundaries — >= 20% Highly Profitable, 5%–19% Marginal,
+    < 5% Unprofitable (fixed baseline costs exactly $95 for a 100-mile trip)."""
+    from src.core.services import calculate_load_profitability
+
+    base = dict(total_miles=100.0, mpg=10.0, fuel_price=3.0, driver_cpm=0.5)
+
+    # Gross $118.75 => cost $95 => exactly 20% margin => Highly Profitable.
+    hi = calculate_load_profitability(gross_payout=118.75, **base)
+    assert hi["profit_margin_pct"] == pytest.approx(20.0, abs=0.01)
+    assert hi["status"] == "🟢 Highly Profitable"
+
+    # Gross $118 => 19.5% margin => Marginal.
+    med = calculate_load_profitability(gross_payout=118.0, **base)
+    assert med["status"] == "🟡 Marginal"
+
+    # Gross $100 => exactly 5% margin => stays Marginal (5%-19% band).
+    boundary = calculate_load_profitability(gross_payout=100.0, **base)
+    assert boundary["profit_margin_pct"] == pytest.approx(5.0, abs=0.01)
+    assert boundary["status"] == "🟡 Marginal"
+
+    # Gross $95 => 0% margin => Unprofitable.
+    low = calculate_load_profitability(gross_payout=95.0, **base)
+    assert low["net_profit"] == pytest.approx(0.0, abs=0.01)
+    assert low["status"] == "🔴 Unprofitable"
+
+
+def test_profitability_guards_division_by_zero():
+    """TASK-6.7 guardrail: zero miles, zero MPG, or zero payout never raise —
+    the calculator returns a valid=False result (mapped to Unprofitable)."""
+    from src.core.services import calculate_load_profitability
+
+    # Zero total miles: RPM/CPM are impossible, never a ZeroDivisionError.
+    zero_miles = calculate_load_profitability(
+        gross_payout=1000.0, total_miles=0, mpg=6.5, fuel_price=3.85, driver_cpm=0.60
+    )
+    assert zero_miles["valid"] is False
+    assert zero_miles["status"] == "🔴 Unprofitable"
+    assert zero_miles["rpm"] == 0.0
+    assert zero_miles["cpm"] == 0.0
+
+# Zero MPG: fuel division is guarded, fuel cost records $0.00.
+    zero_mpg = calculate_load_profitability(
+        gross_payout=1000.0, total_miles=100, mpg=0, fuel_price=3.93, driver_cpm=0.60
+    )
+    assert zero_mpg["valid"] is False
+    assert zero_mpg["status"] == "🔴 Unprofitable"
+    assert zero_mpg["fuel_cost"] == 0.0
+
+    # Zero payout: margin has no denominator, resolves to an invalid result.
+    zero_payout = calculate_load_profitability(
+        gross_payout=0.0, total_miles=100, mpg=6.5, fuel_price=3.93, driver_cpm=0.60
+    )
+    assert zero_payout["valid"] is False
+    assert zero_payout["status"] == "🔴 Unprofitable"
+    assert zero_payout["profit_margin_pct"] == 0.0
+
+
+def test_quick_load_analyzer_renders_financial_metrics_card(monkeypatch):
+    """TASK-6.7: entering a payout + mileage into the Quick Load Analyzer
+    renders the Financial Metrics Card (Net Profit, RPM, CPM, Margin) without
+    an app exception, backed by the live fuel benchmark."""
+    from src.core import fuel_service
+
+    monkeypatch.setattr(
+        fuel_service,
+        "get_current_diesel_price",
+        lambda region="national": {
+            "price_per_gal": 3.85,
+            "updated_at": "2026-08-08T00:00:00+00:00",
+            "source": "Test",
+            "is_fallback": True,
+        },
+    )
+    monkeypatch.setattr(
+        fuel_service,
+        "get_effective_fuel_cost",
+        lambda carrier_discount=0.0: 3.85,
+    )
+
+    from streamlit.testing.v1 import AppTest
+
+    probe_script = (
+        "import os, sys\n"
+        "sys.path.insert(0, os.getcwd())\n"
+        "import streamlit as st\n"
+        "from src.ui.owner_portal import render_owner_portal\n"
+        "st.set_page_config(page_title='probe')\n"
+        "render_owner_portal(carrier_id=1, actor_user_id=1)\n"
+    )
+    at = AppTest.from_string(probe_script, default_timeout=30)
+    at.run()
+    assert not at.exception
+
+    payouts = [i for i in at.number_input if i.label == "Gross Rate / Payout ($)"]
+    miles = [i for i in at.number_input if i.label == "Total Trip Distance (Miles)"]
+    assert len(payouts) == 1
+    assert len(miles) == 1
+
+    payouts[0].set_value(3000.0)
+    miles[0].set_value(1000.0)
+    at.run()
+    assert not at.exception
+
+    labels = {m.label for m in at.metric}
+    assert "Net Profit" in labels
+    assert "Profit Margin" in labels
+    assert "RPM · Rate Per Mile" in labels
+    assert "CPM · Cost Per Mile" in labels
 

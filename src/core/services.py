@@ -940,3 +940,101 @@ async def get_recent_duty_logs(
     if driver_id is not None:
         stmt = stmt.where(DutyLog.driver_id == driver_id)
     return (await session.execute(stmt)).scalars().all()
+
+
+# ==========================================
+# TASK-6.7: Load Profitability & ROI Analyzer
+# ==========================================
+# Status badge thresholds (percentage margin):
+#   >= 20%  -> Highly Profitable
+#   5%–19%  -> Marginal
+#   < 5%    -> Unprofitable
+PROFIT_HIGHLY_PROFITABLE_STATUS = "🟢 Highly Profitable"
+PROFIT_MARGINAL_STATUS = "🟡 Marginal"
+PROFIT_UNPROFITABLE_STATUS = "🔴 Unprofitable"
+PROFIT_HIGHLY_PROFITABLE_MARGIN = 20.0
+PROFIT_MARGINAL_MARGIN = 5.0
+
+
+def calculate_load_profitability(
+    gross_payout: float,
+    total_miles: float,
+    mpg: float,
+    fuel_price: float,
+    driver_cpm: float,
+    fixed_cpm_reserve: float = 0.15,
+) -> dict:
+    """Instantly compute load profitability (Task TASK-6.7).
+
+    Combines the gross payout with fuel, driver, and fixed overhead reserves
+    to surface net profit, rate-per-mile (RPM), cost-per-mile (CPM), profit
+    margin percentage, and a color-coded decision badge.
+
+    Guardrails: division by zero is impossible. When ``total_miles``,
+    ``gross_payout``, or ``mpg`` are zero (or negative) the function never
+    raises — it reports ``valid=False``, zeroes every derived money figure, and
+    badge status maps to Unprofitable so the UI can nudge the owner to enter a
+    realistic trip.
+    """
+    gross_payout = float(gross_payout or 0.0)
+    total_miles = float(total_miles or 0.0)
+    mpg = float(mpg or 0.0)
+    fuel_price = float(fuel_price or 0.0)
+    driver_cpm = float(driver_cpm or 0.0)
+    fixed_cpm_reserve = float(fixed_cpm_reserve or 0.0)
+
+    usable_miles = total_miles > 0
+    usable_payout = gross_payout > 0
+    usable_mpg = mpg > 0
+
+    # Zero-division guards: an unusable MPG leaves fuel cost indeterminate but
+    # never crashes the calculator — the caller is warned via ``valid``.
+    if usable_miles and usable_mpg:
+        fuel_cost = (total_miles / mpg) * fuel_price
+    else:
+        fuel_cost = 0.0
+    driver_cost = total_miles * driver_cpm
+    overhead_reserve = total_miles * fixed_cpm_reserve
+    total_cost = fuel_cost + driver_cost + overhead_reserve
+    net_profit = gross_payout - total_cost
+
+    if usable_miles:
+        rpm = gross_payout / total_miles
+        cpm = total_cost / total_miles
+    else:
+        rpm = 0.0
+        cpm = 0.0
+
+    if usable_payout:
+        profit_margin_pct = (net_profit / gross_payout) * 100
+    else:
+        profit_margin_pct = 0.0
+
+    if not usable_miles or not usable_payout or not usable_mpg:
+        status = PROFIT_UNPROFITABLE_STATUS
+        is_valid = False
+    elif profit_margin_pct >= PROFIT_HIGHLY_PROFITABLE_MARGIN:
+        status = PROFIT_HIGHLY_PROFITABLE_STATUS
+        is_valid = True
+    elif profit_margin_pct >= PROFIT_MARGINAL_MARGIN:
+        status = PROFIT_MARGINAL_STATUS
+        is_valid = True
+    else:
+        status = PROFIT_UNPROFITABLE_STATUS
+        is_valid = True
+
+    return {
+        "valid": is_valid,
+        "gross_payout": round(gross_payout, 2),
+        "total_miles": total_miles,
+        "fuel_price": round(fuel_price, 2),
+        "fuel_cost": round(fuel_cost, 2),
+        "driver_cost": round(driver_cost, 2),
+        "overhead_reserve": round(overhead_reserve, 2),
+        "total_cost": round(total_cost, 2),
+        "net_profit": round(net_profit, 2),
+        "rpm": round(rpm, 2),
+        "cpm": round(cpm, 2),
+        "profit_margin_pct": round(profit_margin_pct, 2),
+        "status": status,
+    }

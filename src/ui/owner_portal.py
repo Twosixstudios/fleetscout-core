@@ -8,6 +8,7 @@ from src.core.database import AsyncSessionLocal
 from src.core.models import Carrier, Load, User, UserInvite, Vehicle
 from src.core.services import (
     admin_reset_password,
+    calculate_load_profitability,
     create_team_member,
     create_onboarding_invite,
     delete_or_deactivate_user,
@@ -631,6 +632,132 @@ def _render_team_roster(carrier_id, actor_user_id):
                         st.rerun()
 
 
+def _render_quick_load_analyzer(carrier, carrier_id):
+    """📈 Quick Load Analyzer — Ratecon + live fuel → profitability verdict.
+
+    Combines a FreightSlip Rate Con upload (or manual payout) with the live
+    EIA diesel benchmark and carrier cost baselines to instantly render net
+    margin, RPM, CPM, and a color-coded profit decision badge (Task TASK-6.7).
+    """
+    st.markdown("### 📈 Quick Load Analyzer")
+    st.caption(
+        "Upload a FreightSlip Rate Confirmation or type the numbers below, and "
+        "get an instant ROI breakdown — powered by the live EIA fuel benchmark "
+        "and your carrier cost baselines."
+    )
+
+    default_mpg = getattr(carrier, "default_mpg", None) or 6.5
+    default_driver_cpm = getattr(carrier, "default_driver_cpm", None) or 0.60
+    fuel_discount = getattr(carrier, "carrier_fuel_discount", None) or 0.00
+
+    from src.core import fuel_service
+
+    fuel_price = fuel_service.get_effective_fuel_cost(
+        carrier_discount=fuel_discount
+    )
+
+    uploaded_rate = st.file_uploader(
+        "Upload Rate Confirmation (PDF / TXT)",
+        type=["pdf", "txt"],
+        key="owner_analyzer_ratecon",
+    )
+    parsed_payout = None
+    parse_error = None
+    if uploaded_rate is not None:
+        try:
+            from src.core.ratecon_parser import parse_rate_confirmation_bytes
+
+            parsed = parse_rate_confirmation_bytes(uploaded_rate.getvalue())
+            parsed_payout = parsed.get("payout")
+        except Exception as exc:  # RateConfirmationParseError never crashes UI
+            parse_error = str(exc)
+
+    col_l, col_r = st.columns(2)
+    with col_l:
+        gross_payout = st.number_input(
+            "Gross Rate / Payout ($)",
+            min_value=0.0,
+            value=float(parsed_payout or 0.0),
+            step=50.0,
+            key="carrier_analyzer_payout",
+        )
+    with col_r:
+        total_miles = st.number_input(
+            "Total Trip Distance (Miles)",
+            min_value=0.0,
+            value=1000.0,
+            step=50.0,
+            key="carrier_analyzer_miles",
+        )
+
+    st.caption(
+        f"⛽ Live fuel benchmark **${fuel_price:,.2f}/gal** · "
+        f"Fleet MPG **{default_mpg}** · Driver **${default_driver_cpm:,.2f}/mi** "
+        f"(overhead reserve **$0.15/mi**) · fuel-card discount **${fuel_discount:,.2f}/gal**"
+    )
+
+    if parse_error:
+        st.warning(f"Could not parse that rate confirmation: {parse_error}")
+    if total_miles <= 0 or gross_payout <= 0:
+        st.info("Enter a payout and trip distance to see the profitability breakdown.")
+        return
+
+    result = calculate_load_profitability(
+        gross_payout=gross_payout,
+        total_miles=total_miles,
+        mpg=default_mpg,
+        fuel_price=fuel_price,
+        driver_cpm=default_driver_cpm,
+    )
+
+    st.divider()
+    st.markdown("**📊 Financial Metrics Card**")
+    if result["valid"]:
+        if "Highly Profitable" in result["status"]:
+            badge = st.success(f"### {result['status']}")
+        elif "Marginal" in result["status"]:
+            badge = st.warning(f"### {result['status']}")
+        else:
+            badge = st.error(f"### {result['status']}")
+        _ = badge  # color-coded decision badge
+    else:
+        st.error(
+            f"### {result['status']}\n\n"
+            "Enter a valid payout, trip distance, and MPG before computing."
+        )
+        return
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Gross Payout", f"${result['gross_payout']:,.2f}")
+    m2.metric("Total Costs", f"${result['total_cost']:,.2f}")
+    m3.metric("Net Profit", f"${result['net_profit']:,.2f}")
+    m4.metric("Profit Margin", f"{result['profit_margin_pct']:.1f}%")
+
+    c1, c2 = st.columns(2)
+    c1.metric("RPM · Rate Per Mile", f"${result['rpm']:.2f}/mi")
+    c2.metric("CPM · Cost Per Mile", f"${result['cpm']:.2f}/mi")
+
+    st.markdown("**Cost Breakdown**")
+    breakdown = [
+        {
+            "Category": "⛽ Fuel",
+            "Trip Total": f"${result['fuel_cost']:,.2f}",
+            "Per Mile": f"${result['fuel_cost'] / total_miles:.2f}/mi",
+        },
+        {
+            "Category": "👤 Driver Pay",
+            "Trip Total": f"${result['driver_cost']:,.2f}",
+            "Per Mile": f"${result['driver_cost'] / total_miles:.2f}/mi",
+        },
+        {
+            "Category": "💼 Overhead Reserve",
+            "Trip Total": f"${result['overhead_reserve']:,.2f}",
+            "Per Mile": f"${result['overhead_reserve'] / total_miles:.2f}/mi",
+        },
+    ]
+    st.dataframe(breakdown, use_container_width=True, hide_index=True)
+
+
 def render_owner_portal(carrier_id=1, actor_user_id=1):
     st.subheader("👑 Executive Owner Dashboard")
     st.caption(
@@ -640,12 +767,13 @@ def render_owner_portal(carrier_id=1, actor_user_id=1):
 
     carrier = _load_carrier(carrier_id)
 
-    tab_fleet, tab_driver, tab_team, tab_carrier = st.tabs(
+    tab_fleet, tab_driver, tab_team, tab_carrier, tab_analyzer = st.tabs(
         [
             "📊 Fleet Command Center",
             "🚛 Driver Console View",
             "👥 Team & Access Management",
             "⚙️ Carrier Settings",
+            "📈 Quick Load Analyzer",
         ]
     )
 
@@ -661,6 +789,9 @@ def render_owner_portal(carrier_id=1, actor_user_id=1):
 
     with tab_carrier:
         _render_carrier_settings(carrier, carrier_id)
+
+    with tab_analyzer:
+        _render_quick_load_analyzer(carrier, carrier_id)
 
     if owner_msg := st.session_state.pop("owner_update_ref", None):
         st.success(owner_msg)
